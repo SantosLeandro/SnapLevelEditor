@@ -100,6 +100,7 @@ private:
     QSpinBox *m_roomPosX = nullptr;
     QSpinBox *m_roomPosY = nullptr;
     QLabel *m_tileInfoId = nullptr;
+    QLabel *m_tileInfoSprite = nullptr;
 
     // Bottom dock
     QTabWidget *m_bottomTabs = nullptr;

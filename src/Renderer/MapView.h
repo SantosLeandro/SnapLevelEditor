@@ -57,6 +57,10 @@ public:
     const QString &objectType() const { return m_objectType; }
 
     void selectObject(int64_t objectId, int layerIndex);
+    bool hasSelectedObject() const { return m_selectedObjectId >= 0; }
+    int64_t selectedObjectId() const { return m_selectedObjectId; }
+    int selectedObjectLayer() const { return m_selectedObjectLayer; }
+    void assignObjectSprite(int tileIndex);
 
     double zoom() const { return m_zoom; }
     void setZoom(double zoom);
@@ -100,6 +104,8 @@ private:
 
     void buildTileVertices(QVector<Vertex> &verts);
     void buildObjectVertices(QVector<Vertex> &verts);
+    void buildObjectSpriteVertices(QVector<Vertex> &verts);
+    void buildSelectionBorderVertices(QVector<Vertex> &verts);
     void buildGridVertices(QVector<Vertex> &verts);
     void buildOverlayVertices(QVector<Vertex> &verts);
 

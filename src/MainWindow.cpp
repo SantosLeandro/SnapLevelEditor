@@ -6,6 +6,8 @@
 #include "Model/Layer.h"
 #include "Model/GameObject.h"
 
+#include <cstdlib>
+
 #include <QMenuBar>
 #include <QMenu>
 #include <QToolBar>
@@ -537,11 +539,16 @@ void MainWindow::connectSignals() {
         });
     }
 
-    // Tileset selection
+    // Tileset selection → assign sprite to selected object or set brush tile
     connect(m_tilesetPanel, &TilesetPanel::tileSelected, this,
             [this](int index) {
-                m_selectedTileId = index;
-                m_mapView->setSelectedTileId(index);
+                if (m_mapView->currentTool() == MapView::ToolType::Select &&
+                    m_mapView->hasSelectedObject()) {
+                    m_mapView->assignObjectSprite(index);
+                } else {
+                    m_selectedTileId = index;
+                    m_mapView->setSelectedTileId(index);
+                }
             });
 }
 
@@ -554,6 +561,7 @@ void MainWindow::updatePropertiesForObject(int64_t id, int layerIndex) {
         m_propPosX->setValue(0);
         m_propPosY->setValue(0);
         m_tileInfoId->setText("—");
+        m_tileInfoSprite->setText("—");
         return;
     }
     Room *room = m_world ? m_world->room(m_activeRoomIndex) : nullptr;
@@ -568,6 +576,12 @@ void MainWindow::updatePropertiesForObject(int64_t id, int layerIndex) {
     m_propPosX->setValue((int)obj->x);
     m_propPosY->setValue((int)obj->y);
     m_tileInfoId->setText(QString::number(id));
+
+    auto it = obj->properties.find("spriteId");
+    if (it != obj->properties.end() && std::atoi(it->second.c_str()) >= 0)
+        m_tileInfoSprite->setText(QString("tile #%1").arg(QString::fromStdString(it->second)));
+    else
+        m_tileInfoSprite->setText("—");
 }
 
 // ─── File I/O ──────────────────────────────────────────────────────────────
@@ -1084,9 +1098,8 @@ void MainWindow::setupPropertiesDock() {
     auto *tileInfoLayout = new QFormLayout(tileInfoPage);
     m_tileInfoId = new QLabel("—");
     tileInfoLayout->addRow("Object ID", m_tileInfoId);
-    tileInfoLayout->addRow("Tileset", new QLabel("tileset_grass.png"));
-    tileInfoLayout->addRow("Collision", new QLabel("Solid"));
-    tileInfoLayout->addRow("Tags", new QLabel("ground, walkable"));
+    m_tileInfoSprite = new QLabel("—");
+    tileInfoLayout->addRow("Sprite Tile", m_tileInfoSprite);
     m_propTabs->addTab(tileInfoPage, "Tile Info");
 
     dock->setWidget(m_propTabs);

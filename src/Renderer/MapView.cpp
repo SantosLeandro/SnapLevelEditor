@@ -14,6 +14,7 @@
 #include <QPainter>
 #include <QFileInfo>
 #include <algorithm>
+#include <cstdlib>
 #include <stack>
 
 static const char *kVertSrc = R"(
@@ -142,6 +143,29 @@ void MapView::selectObject(int64_t objectId, int layerIndex) {
     m_selectedObjectId = objectId;
     m_selectedObjectLayer = layerIndex;
     update();
+}
+
+void MapView::assignObjectSprite(int tileIndex) {
+    if (m_selectedObjectId < 0) return;
+    Room *room = activeRoom();
+    if (!room) return;
+    Layer *layer = room->layer(m_selectedObjectLayer);
+    if (!layer) return;
+    GameObject *obj = layer->object(m_selectedObjectId);
+    if (!obj) return;
+
+    auto it = obj->properties.find("spriteId");
+    std::string oldVal = (it != obj->properties.end()) ? it->second : std::string();
+    std::string newVal = std::to_string(tileIndex);
+
+    auto *cmd = new SetObjectSpriteCommand(layer, m_selectedObjectId, oldVal, newVal);
+    if (m_undoStack)
+        m_undoStack->push(cmd);
+    else {
+        cmd->redo();
+        delete cmd;
+    }
+    emit objectsChanged();
 }
 
 void MapView::setZoom(double zoom) {
@@ -360,7 +384,7 @@ void MapView::paintGL() {
         glDrawArrays(GL_TRIANGLES, 0, tileVerts.size());
     }
 
-    // Game objects
+    // Game objects (colored fallback — no sprite)
     QVector<Vertex> objVerts;
     buildObjectVertices(objVerts);
     if (!objVerts.isEmpty()) {
@@ -370,6 +394,30 @@ void MapView::paintGL() {
         glBufferData(GL_ARRAY_BUFFER, objVerts.size() * (int)sizeof(Vertex),
                      objVerts.constData(), GL_DYNAMIC_DRAW);
         glDrawArrays(GL_TRIANGLES, 0, objVerts.size());
+    }
+
+    // Game objects (sprites)
+    QVector<Vertex> objSpriteVerts;
+    buildObjectSpriteVertices(objSpriteVerts);
+    if (!objSpriteVerts.isEmpty()) {
+        m_spritesheet->bind(0);
+        glBindVertexArray(m_tileVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, m_tileVBO);
+        glBufferData(GL_ARRAY_BUFFER, objSpriteVerts.size() * (int)sizeof(Vertex),
+                     objSpriteVerts.constData(), GL_DYNAMIC_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, objSpriteVerts.size());
+    }
+
+    // Selection border (on top of everything)
+    QVector<Vertex> selVerts;
+    buildSelectionBorderVertices(selVerts);
+    if (!selVerts.isEmpty()) {
+        m_whiteTex->bind(0);
+        glBindVertexArray(m_tileVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, m_tileVBO);
+        glBufferData(GL_ARRAY_BUFFER, selVerts.size() * (int)sizeof(Vertex),
+                     selVerts.constData(), GL_DYNAMIC_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, selVerts.size());
     }
 
     // Grid
@@ -472,21 +520,71 @@ void MapView::buildObjectVertices(QVector<Vertex> &verts) {
             Layer *layer = room->layer(i);
             if (!layer || !layer->visible()) continue;
             for (const GameObject &obj : layer->objects()) {
+                // Skip objects that have a sprite assigned
+                auto it = obj.properties.find("spriteId");
+                if (it != obj.properties.end()) {
+                    int sid = std::atoi(it->second.c_str());
+                    if (sid >= 0) continue;
+                }
                 QColor fill = objectColor(QString::fromStdString(obj.type));
                 fill.setAlpha(160);
                 quad(verts, ox + obj.x, oy + obj.y, obj.width, obj.height, fill);
-                // Highlight selected object with bright white/yellow border
-                bool selected = (obj.id == m_selectedObjectId && i == m_selectedObjectLayer);
-                QColor outline = selected ? QColor("#ffdd44")
-                                          : fill.lighter(150);
-                outline.setAlpha(selected ? 255 : 220);
-                quad(verts, ox + obj.x - (selected ? 2 : 1),
-                     oy + obj.y - (selected ? 2 : 1),
-                     obj.width + (selected ? 4 : 2),
-                     obj.height + (selected ? 4 : 2), outline);
+                // Subtle outline for non-selected objects
+                QColor outline = fill.lighter(150);
+                outline.setAlpha(220);
+                quad(verts, ox + obj.x - 1, oy + obj.y - 1,
+                     obj.width + 2, obj.height + 2, outline);
             }
         }
     }
+}
+
+void MapView::buildObjectSpriteVertices(QVector<Vertex> &verts) {
+    if (!m_world || !m_spritesheet) return;
+
+    for (int ri = 0; ri < m_world->roomCount(); ++ri) {
+        Room *room = m_world->room(ri);
+        if (!room) continue;
+        int ox = room->worldX();
+        int oy = room->worldY();
+
+        for (int i = 0; i < room->layerCount(); ++i) {
+            Layer *layer = room->layer(i);
+            if (!layer || !layer->visible()) continue;
+            for (const GameObject &obj : layer->objects()) {
+                auto it = obj.properties.find("spriteId");
+                if (it == obj.properties.end()) continue;
+                int spriteId = std::atoi(it->second.c_str());
+                if (spriteId < 0) continue;
+
+                float u0, v0, u1, v1;
+                tileUV(spriteId, u0, v0, u1, v1);
+
+                if (obj.flipX) std::swap(u0, u1);
+                if (obj.flipY) std::swap(v0, v1);
+
+                texQuad(verts, ox + obj.x, oy + obj.y,
+                        obj.width, obj.height, u0, v0, u1, v1);
+            }
+        }
+    }
+}
+
+void MapView::buildSelectionBorderVertices(QVector<Vertex> &verts) {
+    if (m_selectedObjectId < 0 || !m_world) return;
+    Room *room = activeRoom();
+    if (!room) return;
+    Layer *layer = room->layer(m_selectedObjectLayer);
+    if (!layer || !layer->visible()) return;
+    GameObject *obj = layer->object(m_selectedObjectId);
+    if (!obj) return;
+
+    int ox = room->worldX();
+    int oy = room->worldY();
+    QColor outline("#ffdd44");
+    outline.setAlpha(255);
+    quad(verts, ox + obj->x - 2, oy + obj->y - 2,
+         obj->width + 4, obj->height + 4, outline);
 }
 
 void MapView::buildGridVertices(QVector<Vertex> &verts) {

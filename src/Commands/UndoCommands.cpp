@@ -95,3 +95,36 @@ void MoveObjectCommand::redo() {
         obj->y = m_newPos.y();
     }
 }
+
+// ─── SetObjectSpriteCommand ─────────────────────────────────────────────────
+
+SetObjectSpriteCommand::SetObjectSpriteCommand(Layer *layer, int64_t objectId,
+                                               const std::string &oldSpriteId,
+                                               const std::string &newSpriteId,
+                                               QUndoCommand *parent)
+    : QUndoCommand(parent)
+    , m_layer(layer)
+    , m_objectId(objectId)
+    , m_oldSpriteId(oldSpriteId)
+    , m_newSpriteId(newSpriteId)
+{
+    setText(QString("Set Object Sprite"));
+}
+
+void SetObjectSpriteCommand::undo() {
+    GameObject *obj = m_layer->object(m_objectId);
+    if (!obj) return;
+    if (m_oldSpriteId.empty())
+        obj->properties.erase("spriteId");
+    else
+        obj->properties["spriteId"] = m_oldSpriteId;
+}
+
+void SetObjectSpriteCommand::redo() {
+    GameObject *obj = m_layer->object(m_objectId);
+    if (!obj) return;
+    if (m_newSpriteId.empty())
+        obj->properties.erase("spriteId");
+    else
+        obj->properties["spriteId"] = m_newSpriteId;
+}

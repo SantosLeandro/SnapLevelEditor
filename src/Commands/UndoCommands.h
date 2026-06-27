@@ -3,6 +3,7 @@
 #include <QUndoCommand>
 #include <QVector>
 #include <QPointF>
+#include <string>
 #include <cstdint>
 #include "../Model/GameObject.h"
 
@@ -67,4 +68,21 @@ private:
     int64_t m_objectId;
     QPointF m_oldPos;
     QPointF m_newPos;
+};
+
+// ─── Set object sprite (tile index) ────────────────────────────────────────
+
+class SetObjectSpriteCommand : public QUndoCommand {
+public:
+    SetObjectSpriteCommand(Layer *layer, int64_t objectId,
+                           const std::string &oldSpriteId,
+                           const std::string &newSpriteId,
+                           QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+private:
+    Layer *m_layer;
+    int64_t m_objectId;
+    std::string m_oldSpriteId;
+    std::string m_newSpriteId;
 };
