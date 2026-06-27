@@ -118,6 +118,7 @@ void MapView::setTool(ToolType tool) {
         m_selectedObjectId = -1;
         m_selectedObjectLayer = -1;
     }
+    m_showPreview = (tool == ToolType::GameObject || tool == ToolType::Trigger || tool == ToolType::Camera);
     // Cursor per mode
     switch (tool) {
     case ToolType::Select:      setCursor(Qt::ArrowCursor); break;
@@ -477,6 +478,30 @@ void MapView::paintGL() {
         glDrawArrays(GL_TRIANGLES, 0, overlayVerts.size());
     }
 
+    // Object placement preview (ghost)
+    if (m_showPreview) {
+        Room *r = activeRoom();
+        if (r) {
+            QColor ghost = objectColor(m_objectType.isEmpty() ? QString("Coin") : m_objectType);
+            ghost.setAlpha(100);
+            QVector<Vertex> pv;
+            float px = r->worldX() + m_previewWorldPos.x();
+            float py = r->worldY() + m_previewWorldPos.y();
+            quad(pv, px, py, m_previewSize.width(), m_previewSize.height(), ghost);
+            QColor border = ghost.lighter(150);
+            border.setAlpha(180);
+            quad(pv, px - 1, py - 1, m_previewSize.width() + 2, m_previewSize.height() + 2, border);
+            if (!pv.isEmpty()) {
+                m_whiteTex->bind(0);
+                glBindVertexArray(m_tileVAO);
+                glBindBuffer(GL_ARRAY_BUFFER, m_tileVBO);
+                glBufferData(GL_ARRAY_BUFFER, pv.size() * (int)sizeof(Vertex),
+                             pv.constData(), GL_DYNAMIC_DRAW);
+                glDrawArrays(GL_TRIANGLES, 0, pv.size());
+            }
+        }
+    }
+
     glBindVertexArray(0);
 }
 
@@ -620,10 +645,17 @@ void MapView::buildSelectionBorderVertices(QVector<Vertex> &verts) {
 
     int ox = room->worldX();
     int oy = room->worldY();
-    QColor outline("#ffdd44");
-    outline.setAlpha(255);
-    quad(verts, ox + obj->x - 2, oy + obj->y - 2,
-         obj->width + 4, obj->height + 4, outline);
+    float x = ox + obj->x, y = oy + obj->y;
+    float w = obj->width, h = obj->height;
+
+    QColor c("#ffdd44");
+    c.setAlpha(200);
+    float bw = 2.0f;
+    // top, bottom, left, right
+    quad(verts, x - bw, y - bw, w + bw * 2, bw, c);
+    quad(verts, x - bw, y + h, w + bw * 2, bw, c);
+    quad(verts, x - bw, y, bw, h, c);
+    quad(verts, x + w, y, bw, h, c);
 }
 
 void MapView::buildDefObjectVertices(QVector<Vertex> &verts, const QString &textureFile) {
@@ -945,6 +977,16 @@ void MapView::mouseMoveEvent(QMouseEvent *event) {
                 }
             }
         }
+    }
+
+    // Placement preview for game object tools
+    if (m_showPreview && room) {
+        QPointF snapped = snapToTile(world, room->tileSize());
+        m_previewWorldPos = QPointF(
+            snapped.x() - room->worldX(),
+            snapped.y() - room->worldY()
+        );
+        update();
     }
 }
 

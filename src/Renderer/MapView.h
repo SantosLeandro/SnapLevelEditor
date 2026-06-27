@@ -11,10 +11,11 @@
 #include <QImage>
 #include <QString>
 
+#include "../Model/GameObjectDef.h"
+
 class Room;
 class World;
 class GameObject;
-class GameObjectDefManager;
 class QUndoStack;
 class QUndoCommand;
 
@@ -54,7 +55,17 @@ public:
 
     void setUndoStack(QUndoStack *stack) { m_undoStack = stack; }
 
-    void setObjectType(const QString &type) { m_objectType = type; }
+    void setObjectType(const QString &type) {
+        m_objectType = type;
+        // Update preview size from def
+        if (m_goDefMgr) {
+            const GameObjectDef *def = m_goDefMgr->definition(type);
+            if (def)
+                m_previewSize = QSizeF((float)def->spriteRect.width(), (float)def->spriteRect.height());
+            else
+                m_previewSize = QSizeF(24, 24);
+        }
+    }
     const QString &objectType() const { return m_objectType; }
 
     void selectObject(int64_t objectId, int layerIndex);
@@ -155,6 +166,11 @@ private:
 
     // Object type override (from m_goTypeList)
     QString m_objectType;
+
+    // Placement preview (GameObject/Trigger/Camera tools)
+    QPointF m_previewWorldPos;
+    QSizeF m_previewSize{24, 24};
+    bool m_showPreview = false;
 
     // Currently selected game object
     int64_t m_selectedObjectId = -1;
