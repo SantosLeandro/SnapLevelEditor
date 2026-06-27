@@ -56,8 +56,8 @@ MapView::MapView(QWidget *parent)
 }
 
 MapView::~MapView() {
-    makeCurrent();
     delete m_pendingCmd;
+    makeCurrent();
     if (m_tileVAO) glDeleteVertexArrays(1, &m_tileVAO);
     if (m_tileVBO) glDeleteBuffers(1, &m_tileVBO);
     if (m_gridVAO) glDeleteVertexArrays(1, &m_gridVAO);
@@ -68,8 +68,14 @@ MapView::~MapView() {
     delete m_spritesheet;
     delete m_whiteTex;
     qDeleteAll(m_defTextures);
-    m_defTextures.clear();
     doneCurrent();
+    m_tileVAO = 0; m_tileVBO = 0;
+    m_gridVAO = 0; m_gridVBO = 0;
+    m_overlayVAO = 0; m_overlayVBO = 0;
+    m_program = 0;
+    m_spritesheet = nullptr;
+    m_whiteTex = nullptr;
+    m_defTextures.clear();
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────
@@ -364,6 +370,7 @@ void MapView::initializeGL() {
 
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
     updateProjView();
 }
 

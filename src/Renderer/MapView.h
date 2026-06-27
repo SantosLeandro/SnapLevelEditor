@@ -200,4 +200,6 @@ private:
     QMap<QString, QOpenGLTexture*> m_defTextures;
 
     QMatrix4x4 m_projView;
+
+
 };

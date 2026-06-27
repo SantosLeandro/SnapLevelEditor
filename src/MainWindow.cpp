@@ -191,8 +191,16 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 }
 
 MainWindow::~MainWindow() {
+    // Prevent QUndoStack::indexChanged from firing after m_world is gone
+    // (the stack emits indexChanged during its own destruction, which would
+    // trigger refreshExplorerTree with a dangling m_world pointer)
+    if (m_undoStack)
+        disconnect(m_undoStack, &QUndoStack::indexChanged, this, &MainWindow::refreshExplorerTree);
+
     delete m_goDefManager;
+    m_goDefManager = nullptr;
     delete m_world;
+    m_world = nullptr;
 }
 
 // ─── Room management ───────────────────────────────────────────────────────
