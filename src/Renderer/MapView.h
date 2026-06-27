@@ -14,6 +14,7 @@
 class Room;
 class World;
 class GameObject;
+class GameObjectDefManager;
 class QUndoStack;
 class QUndoCommand;
 
@@ -62,6 +63,8 @@ public:
     int selectedObjectLayer() const { return m_selectedObjectLayer; }
     void assignObjectSprite(int tileIndex);
 
+    void setGameObjectDefManager(const GameObjectDefManager *mgr) { m_goDefMgr = mgr; }
+
     double zoom() const { return m_zoom; }
     void setZoom(double zoom);
     void zoomIn();
@@ -105,6 +108,7 @@ private:
     void buildTileVertices(QVector<Vertex> &verts);
     void buildObjectVertices(QVector<Vertex> &verts);
     void buildObjectSpriteVertices(QVector<Vertex> &verts);
+    void buildDefObjectVertices(QVector<Vertex> &verts, const QString &textureFile);
     void buildSelectionBorderVertices(QVector<Vertex> &verts);
     void buildGridVertices(QVector<Vertex> &verts);
     void buildOverlayVertices(QVector<Vertex> &verts);
@@ -175,6 +179,9 @@ private:
     QOpenGLTexture *m_whiteTex = nullptr;
     QImage m_spritesheetImage;
     QString m_spritesheetPath;
+
+    const GameObjectDefManager *m_goDefMgr = nullptr;
+    QMap<QString, QOpenGLTexture*> m_defTextures;
 
     QMatrix4x4 m_projView;
 };

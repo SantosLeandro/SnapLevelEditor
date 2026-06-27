@@ -5,6 +5,7 @@
 #include "Model/Room.h"
 #include "Model/Layer.h"
 #include "Model/GameObject.h"
+#include "Model/GameObjectDef.h"
 
 #include <cstdlib>
 
@@ -126,6 +127,12 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     connect(m_mapView, &MapView::objectsChanged, this, &MainWindow::refreshExplorerTree);
     connect(m_undoStack, &QUndoStack::indexChanged, this, &MainWindow::refreshExplorerTree);
 
+    // GameObject definitions
+    m_goDefManager = new GameObjectDefManager();
+    m_goDefManager->loadDefault(QApplication::applicationDirPath());
+    m_mapView->setGameObjectDefManager(m_goDefManager);
+    populateGameObjectList();
+
     // Mode indicator
     auto updateModeLabel = [this](MapView::ToolType t) {
         if (!m_modeLabel) return;
@@ -184,6 +191,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
 }
 
 MainWindow::~MainWindow() {
+    delete m_goDefManager;
     delete m_world;
 }
 
@@ -562,6 +570,7 @@ void MainWindow::updatePropertiesForObject(int64_t id, int layerIndex) {
         m_propPosY->setValue(0);
         m_tileInfoId->setText("—");
         m_tileInfoSprite->setText("—");
+        m_tileInfoDef->setText("—");
         return;
     }
     Room *room = m_world ? m_world->room(m_activeRoomIndex) : nullptr;
@@ -582,6 +591,21 @@ void MainWindow::updatePropertiesForObject(int64_t id, int layerIndex) {
         m_tileInfoSprite->setText(QString("tile #%1").arg(QString::fromStdString(it->second)));
     else
         m_tileInfoSprite->setText("—");
+
+    // Show GameObjectDef info
+    if (m_goDefManager) {
+        const GameObjectDef *def = m_goDefManager->definition(
+            QString::fromStdString(obj->type));
+        if (def)
+            m_tileInfoDef->setText(QString("%1 (%2,%3 %4x%5)")
+                .arg(def->textureFile)
+                .arg(def->spriteRect.x()).arg(def->spriteRect.y())
+                .arg(def->spriteRect.width()).arg(def->spriteRect.height()));
+        else
+            m_tileInfoDef->setText("—");
+    } else {
+        m_tileInfoDef->setText("—");
+    }
 }
 
 // ─── File I/O ──────────────────────────────────────────────────────────────
@@ -781,6 +805,33 @@ void MainWindow::setupMenuBar() {
                         : QDir(projectDir).relativeFilePath(path);
                     layer->setTileset(relPath.toStdString());
                 }
+            }
+        }
+    });
+    fileMenu->addAction("Import GameObject Definitions...", QKeySequence("Ctrl+G"), this, [this]() {
+        QString path = QFileDialog::getOpenFileName(this, "Import GameObject Definitions",
+            QString(), "JSON (*.json);;All Files (*)");
+        if (!path.isEmpty()) {
+            if (!m_goDefManager->loadDefinitions(path))
+                QMessageBox::warning(this, "Error", "Failed to load GameObject definitions.");
+            else {
+                // Check that at least one texture file exists
+                QStringList missing;
+                for (const QString &t : m_goDefManager->uniqueTextureFiles()) {
+                    QString resolved = QFileInfo(QFileInfo(path).absolutePath() + "/" + t).absoluteFilePath();
+                    if (!QFile::exists(resolved) && !QFile::exists(t))
+                        missing << t;
+                }
+                if (!missing.isEmpty())
+                    QMessageBox::warning(this, "Texture Not Found",
+                        QString("Texture file(s) not found:\n%1\n\n"
+                                "Place the texture file next to the JSON definition file.")
+                            .arg(missing.join("\n")));
+
+                m_mapView->setGameObjectDefManager(m_goDefManager);
+                populateGameObjectList();
+                QMessageBox::information(this, "Success",
+                    QString("Loaded %1 GameObject definitions.").arg(m_goDefManager->definitions().size()));
             }
         }
     });
@@ -1100,6 +1151,8 @@ void MainWindow::setupPropertiesDock() {
     tileInfoLayout->addRow("Object ID", m_tileInfoId);
     m_tileInfoSprite = new QLabel("—");
     tileInfoLayout->addRow("Sprite Tile", m_tileInfoSprite);
+    m_tileInfoDef = new QLabel("—");
+    tileInfoLayout->addRow("Definition", m_tileInfoDef);
     m_propTabs->addTab(tileInfoPage, "Tile Info");
 
     dock->setWidget(m_propTabs);
@@ -1208,4 +1261,16 @@ void MainWindow::setupStatusBar() {
     statusBar()->addPermanentWidget(m_modeLabel);
     statusBar()->addPermanentWidget(new QLabel("100%"));
     statusBar()->addPermanentWidget(new QLabel("Snap: ON"));
+}
+
+void MainWindow::populateGameObjectList() {
+    m_goTypeList->clear();
+    if (m_goDefManager && m_goDefManager->hasDefinitions()) {
+        for (const QString &name : m_goDefManager->definitionNames())
+            m_goTypeList->addItem(name);
+    } else {
+        m_goTypeList->addItems({"PlayerStart", "Coin", "Enemy_Goomba", "Trigger_Exit", "Camera_Bounds"});
+    }
+    if (m_goTypeList->count() > 0)
+        m_goTypeList->setCurrentRow(0);
 }

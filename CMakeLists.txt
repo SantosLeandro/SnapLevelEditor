@@ -22,6 +22,8 @@ add_executable(SnapLevelEditor
     src/StyleSheet.h
     src/Model/Tile.h
     src/Model/GameObject.h
+    src/Model/GameObjectDef.h
+    src/Model/GameObjectDef.cpp
     src/Model/Layer.h
     src/Model/Layer.cpp
     src/Model/Room.h

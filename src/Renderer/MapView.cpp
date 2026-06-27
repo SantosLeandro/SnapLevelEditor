@@ -3,6 +3,7 @@
 #include "../Model/Room.h"
 #include "../Model/Layer.h"
 #include "../Model/GameObject.h"
+#include "../Model/GameObjectDef.h"
 #include "../Commands/UndoCommands.h"
 
 #include <QMouseEvent>
@@ -13,6 +14,7 @@
 #include <QtMath>
 #include <QPainter>
 #include <QFileInfo>
+#include <QMap>
 #include <algorithm>
 #include <cstdlib>
 #include <stack>
@@ -65,6 +67,8 @@ MapView::~MapView() {
     if (m_program) glDeleteProgram(m_program);
     delete m_spritesheet;
     delete m_whiteTex;
+    qDeleteAll(m_defTextures);
+    m_defTextures.clear();
     doneCurrent();
 }
 
@@ -408,6 +412,35 @@ void MapView::paintGL() {
         glDrawArrays(GL_TRIANGLES, 0, objSpriteVerts.size());
     }
 
+    // Game objects (from GameObjectDefManager)
+    if (m_goDefMgr && m_goDefMgr->hasDefinitions()) {
+        for (const QString &texFile : m_goDefMgr->uniqueTextureFiles()) {
+            QVector<Vertex> defVerts;
+            buildDefObjectVertices(defVerts, texFile);
+            if (defVerts.isEmpty()) continue;
+
+            // Lazily create / cache GL texture for this file
+            QOpenGLTexture *tex = m_defTextures.value(texFile);
+            if (!tex) {
+                const QImage *img = m_goDefMgr->textureImage(texFile);
+                if (img && !img->isNull()) {
+                    tex = new QOpenGLTexture(*img);
+                    tex->setMinMagFilters(QOpenGLTexture::Nearest, QOpenGLTexture::Nearest);
+                    tex->setWrapMode(QOpenGLTexture::ClampToEdge);
+                    m_defTextures[texFile] = tex;
+                }
+            }
+            if (!tex) continue;
+
+            tex->bind(0);
+            glBindVertexArray(m_tileVAO);
+            glBindBuffer(GL_ARRAY_BUFFER, m_tileVBO);
+            glBufferData(GL_ARRAY_BUFFER, defVerts.size() * (int)sizeof(Vertex),
+                         defVerts.constData(), GL_DYNAMIC_DRAW);
+            glDrawArrays(GL_TRIANGLES, 0, defVerts.size());
+        }
+    }
+
     // Selection border (on top of everything)
     QVector<Vertex> selVerts;
     buildSelectionBorderVertices(selVerts);
@@ -520,11 +553,17 @@ void MapView::buildObjectVertices(QVector<Vertex> &verts) {
             Layer *layer = room->layer(i);
             if (!layer || !layer->visible()) continue;
             for (const GameObject &obj : layer->objects()) {
-                // Skip objects that have a sprite assigned
-                auto it = obj.properties.find("spriteId");
-                if (it != obj.properties.end()) {
-                    int sid = std::atoi(it->second.c_str());
+                // Skip objects with tileset spriteId
+                auto sit = obj.properties.find("spriteId");
+                if (sit != obj.properties.end()) {
+                    int sid = std::atoi(sit->second.c_str());
                     if (sid >= 0) continue;
+                }
+                // Skip objects that have a matching GameObjectDef
+                if (m_goDefMgr && m_goDefMgr->hasDefinitions()) {
+                    const GameObjectDef *def = m_goDefMgr->definition(
+                        QString::fromStdString(obj.type));
+                    if (def) continue;
                 }
                 QColor fill = objectColor(QString::fromStdString(obj.type));
                 fill.setAlpha(160);
@@ -585,6 +624,50 @@ void MapView::buildSelectionBorderVertices(QVector<Vertex> &verts) {
     outline.setAlpha(255);
     quad(verts, ox + obj->x - 2, oy + obj->y - 2,
          obj->width + 4, obj->height + 4, outline);
+}
+
+void MapView::buildDefObjectVertices(QVector<Vertex> &verts, const QString &textureFile) {
+    if (!m_world || !m_goDefMgr) return;
+    const QImage *texImg = m_goDefMgr->textureImage(textureFile);
+    if (!texImg) return;
+    float texW = (float)texImg->width();
+    float texH = (float)texImg->height();
+
+    for (int ri = 0; ri < m_world->roomCount(); ++ri) {
+        Room *room = m_world->room(ri);
+        if (!room) continue;
+        int ox = room->worldX();
+        int oy = room->worldY();
+
+        for (int i = 0; i < room->layerCount(); ++i) {
+            Layer *layer = room->layer(i);
+            if (!layer || !layer->visible()) continue;
+            for (const GameObject &obj : layer->objects()) {
+                // Skip if it has a tileset spriteId (higher priority)
+                auto it = obj.properties.find("spriteId");
+                if (it != obj.properties.end()) {
+                    int sid = std::atoi(it->second.c_str());
+                    if (sid >= 0) continue;
+                }
+                const GameObjectDef *def = m_goDefMgr->definition(
+                    QString::fromStdString(obj.type));
+                if (!def) continue;
+                if (def->textureFile != textureFile) continue;
+
+                const QRect &r = def->spriteRect;
+                float u0 = (float)r.x() / texW;
+                float v0 = (float)r.y() / texH;
+                float u1 = (float)(r.x() + r.width()) / texW;
+                float v1 = (float)(r.y() + r.height()) / texH;
+
+                if (obj.flipX) std::swap(u0, u1);
+                if (obj.flipY) std::swap(v0, v1);
+
+                texQuad(verts, ox + obj.x, oy + obj.y,
+                        obj.width, obj.height, u0, v0, u1, v1);
+            }
+        }
+    }
 }
 
 void MapView::buildGridVertices(QVector<Vertex> &verts) {
@@ -1015,6 +1098,16 @@ void MapView::mousePressEvent(QMouseEvent *event) {
                 if (!m_objectType.isEmpty()) {
                     obj.type = m_objectType.toStdString();
                     obj.name = m_objectType.toStdString() + "_" + std::to_string(obj.id);
+                    // Apply dimensions from GameObjectDef if available
+                    if (m_goDefMgr) {
+                        const GameObjectDef *def = m_goDefMgr->definition(m_objectType);
+                        if (def) {
+                            obj.width = (float)def->spriteRect.width();
+                            obj.height = (float)def->spriteRect.height();
+                            if (!def->actionName.isEmpty())
+                                obj.properties["action"] = def->actionName.toStdString();
+                        }
+                    }
                 } else {
                     switch (m_tool) {
                     case ToolType::GameObject:

@@ -20,6 +20,7 @@ class World;
 class Room;
 class Layer;
 class QIcon;
+class GameObjectDefManager;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -50,6 +51,7 @@ private:
     void updateRoomSizeLabel();
     void updateRoomPositionFields();
     void updatePropertiesForObject(int64_t id, int layerIndex);
+    void populateGameObjectList();
 
     // File I/O
     void newProject();
@@ -101,12 +103,16 @@ private:
     QSpinBox *m_roomPosY = nullptr;
     QLabel *m_tileInfoId = nullptr;
     QLabel *m_tileInfoSprite = nullptr;
+    QLabel *m_tileInfoDef = nullptr;
 
     // Bottom dock
     QTabWidget *m_bottomTabs = nullptr;
     TilesetPanel *m_tilesetPanel = nullptr;
     QListWidget *m_goTypeList = nullptr;
     QComboBox *m_tilesetCombo = nullptr;
+
+    // Data
+    GameObjectDefManager *m_goDefManager = nullptr;
 
     // State
     int m_activeRoomIndex = 0;
