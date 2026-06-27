@@ -39,6 +39,9 @@
 #include <QApplication>
 #include <QUndoStack>
 #include <QDir>
+#include <QPainter>
+#include <QPixmap>
+#include <QIcon>
 #include "Serialization/WorldSerializer.h"
 
 // ─── Constructor ───────────────────────────────────────────────────────────
@@ -117,6 +120,10 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     m_mapView->setWorld(m_world);
     m_mapView->setUndoStack(m_undoStack);
 
+    // Refresh tree when objects change (add/remove via MapView or undo/redo)
+    connect(m_mapView, &MapView::objectsChanged, this, &MainWindow::refreshExplorerTree);
+    connect(m_undoStack, &QUndoStack::indexChanged, this, &MainWindow::refreshExplorerTree);
+
     // Connect zoom combo ↔ MapView
     m_mapView->setZoom(1.25);
     connect(m_zoomCombo, &QComboBox::currentTextChanged, this, [this](const QString &text) {
@@ -140,8 +147,8 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
         m_mapView->setObjectType(m_goTypeList->currentItem()->text());
 
     m_tilesetPanel->setSpritesheet(m_mapView->spritesheetImage(),
-                                   MapView::atlasTileSize(),
-                                   MapView::atlasCols());
+                                   m_mapView->atlasTileSize(),
+                                   m_mapView->atlasCols());
 
     // Save procedural spritesheet so it can be replaced with a real PNG
     QString assetsPath = QCoreApplication::applicationDirPath() + "/assets";
@@ -275,41 +282,103 @@ void MainWindow::updateRoomPositionFields() {
     }
 }
 
+// ─── Icon helpers ──────────────────────────────────────────────────────────
+
+QIcon MainWindow::makeEyeIcon(bool visible) {
+    QPixmap pix(16, 16);
+    pix.fill(Qt::transparent);
+    QPainter p(&pix);
+    p.setRenderHint(QPainter::Antialiasing);
+    if (visible) {
+        p.setPen(QPen(QColor("#9aa0a8"), 1.5));
+        p.setBrush(QColor("#9aa0a8"));
+        p.drawEllipse(QPointF(8, 8), 5, 4);
+        p.setPen(QPen(pix.devicePixelRatio() > 1 ? Qt::black : QColor("#2d3038"), 1.5));
+        p.drawEllipse(QPointF(8, 8), 2, 1.5);
+    } else {
+        p.setPen(QPen(QColor("#5a5f6a"), 1.5));
+        p.drawLine(2, 2, 14, 14);
+        p.drawLine(14, 2, 2, 14);
+        p.setPen(QPen(QColor("#5a5f6a"), 1.0));
+        p.setBrush(Qt::NoBrush);
+        p.drawEllipse(QPointF(8, 8), 5, 4);
+    }
+    p.end();
+    return QIcon(pix);
+}
+
+QIcon MainWindow::makeLockIcon(bool locked) {
+    QPixmap pix(16, 16);
+    pix.fill(Qt::transparent);
+    QPainter p(&pix);
+    p.setRenderHint(QPainter::Antialiasing);
+    if (locked) {
+        p.setPen(QPen(QColor("#e8c547"), 1.5));
+        p.setBrush(QColor("#e8c547"));
+        p.drawRoundedRect(3, 7, 10, 8, 2, 2);
+        p.setPen(QPen(QColor("#e8c547"), 1.5));
+        p.setBrush(Qt::NoBrush);
+        p.drawArc(5, 2, 6, 6, 180 * 16, -180 * 16);
+    } else {
+        p.setPen(QPen(QColor("#5a5f6a"), 1.5));
+        p.setBrush(Qt::NoBrush);
+        p.drawRoundedRect(3, 7, 10, 8, 2, 2);
+        p.drawArc(5, 2, 6, 6, 180 * 16, -180 * 16);
+    }
+    p.end();
+    return QIcon(pix);
+}
+
+void MainWindow::updateLayerTreeItem(QTreeWidgetItem *item, int roomIdx, int layerIdx) {
+    Room *room = m_world ? m_world->room(roomIdx) : nullptr;
+    Layer *layer = room ? room->layer(layerIdx) : nullptr;
+    if (!item || !layer) return;
+    item->setIcon(kColVisible, makeEyeIcon(layer->visible()));
+    item->setIcon(kColLocked, makeLockIcon(layer->locked()));
+}
+
 // ─── Explorer tree ─────────────────────────────────────────────────────────
 
 void MainWindow::refreshExplorerTree() {
     m_explorerTree->clear();
     if (!m_world) return;
 
-    auto *worldItem = new QTreeWidgetItem(m_explorerTree,
-        {QString::fromStdString("World: " + m_world->name())});
+    auto *worldItem = new QTreeWidgetItem(m_explorerTree);
+    worldItem->setText(kColName, QString::fromStdString("World: " + m_world->name()));
 
     for (int ri = 0; ri < m_world->roomCount(); ++ri) {
         Room *room = m_world->room(ri);
-        auto *roomItem = new QTreeWidgetItem(worldItem,
-            {QString::fromStdString(room->name())});
+        auto *roomItem = new QTreeWidgetItem(worldItem);
+        roomItem->setText(kColName, QString::fromStdString(room->name()));
         roomItem->setData(0, Qt::UserRole + 1, Tag_Room);
         roomItem->setData(0, Qt::UserRole + 2, ri);
+        // Room eye/lock (layer-like toggles)
+        roomItem->setIcon(kColVisible, makeEyeIcon(true));
+        roomItem->setIcon(kColLocked, makeLockIcon(false));
 
         // Layers
-        auto *layersItem = new QTreeWidgetItem(roomItem, {"Layers"});
+        auto *layersItem = new QTreeWidgetItem(roomItem);
+        layersItem->setText(kColName, "Layers");
         layersItem->setData(0, Qt::UserRole + 1, Tag_Container);
         for (int li = 0; li < room->layerCount(); ++li) {
             Layer *layer = room->layer(li);
-            auto *layerItem = new QTreeWidgetItem(layersItem,
-                {QString::fromStdString(layer->name())});
+            auto *layerItem = new QTreeWidgetItem(layersItem);
+            layerItem->setText(kColName, QString::fromStdString(layer->name()));
             layerItem->setData(0, Qt::UserRole + 1, Tag_Layer);
             layerItem->setData(0, Qt::UserRole + 2, li);
+            layerItem->setIcon(kColVisible, makeEyeIcon(layer->visible()));
+            layerItem->setIcon(kColLocked, makeLockIcon(layer->locked()));
         }
 
         // Game objects
-        auto *goItem = new QTreeWidgetItem(roomItem, {"GameObjects"});
+        auto *goItem = new QTreeWidgetItem(roomItem);
+        goItem->setText(kColName, "GameObjects");
         goItem->setData(0, Qt::UserRole + 1, Tag_Container);
         for (int li = 0; li < room->layerCount(); ++li) {
             Layer *layer = room->layer(li);
             for (const auto &obj : layer->objects()) {
-                auto *objItem = new QTreeWidgetItem(goItem,
-                    {QString::fromStdString(obj.name)});
+                auto *objItem = new QTreeWidgetItem(goItem);
+                objItem->setText(kColName, QString::fromStdString(obj.name));
                 objItem->setData(0, Qt::UserRole + 1, Tag_GameObject);
                 QVariantList v; v << li << (qlonglong)obj.id;
                 objItem->setData(0, Qt::UserRole + 2, v);
@@ -403,6 +472,32 @@ void MainWindow::connectSignals() {
                 }
             });
 
+    // Tree eye/lock click → toggle layer visibility / lock
+    connect(m_explorerTree, &QTreeWidget::itemClicked, this,
+            [this](QTreeWidgetItem *item, int column) {
+                if (!item) return;
+                int tag = item->data(0, Qt::UserRole + 1).toInt();
+                if (tag != Tag_Layer) return;
+                int ri = -1, li = item->data(0, Qt::UserRole + 2).toInt();
+                // Find which room this layer belongs to
+                QTreeWidgetItem *parent = item->parent() ? item->parent()->parent() : nullptr;
+                if (parent)
+                    ri = parent->data(0, Qt::UserRole + 2).toInt();
+
+                Room *room = (ri >= 0 && m_world) ? m_world->room(ri) : nullptr;
+                Layer *layer = room ? room->layer(li) : nullptr;
+                if (!layer) return;
+
+                if (column == kColVisible) {
+                    layer->setVisible(!layer->visible());
+                    item->setIcon(kColVisible, makeEyeIcon(layer->visible()));
+                    m_mapView->update();
+                } else if (column == kColLocked) {
+                    layer->setLocked(!layer->locked());
+                    item->setIcon(kColLocked, makeLockIcon(layer->locked()));
+                }
+            });
+
     // Room position editing
     if (m_roomPosX && m_roomPosY) {
         connect(m_roomPosX, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int val) {
@@ -451,6 +546,7 @@ void MainWindow::updatePropertiesForObject(int64_t id, int layerIndex) {
 // ─── File I/O ──────────────────────────────────────────────────────────────
 
 void MainWindow::newProject() {
+    GameObject::resetIdCounter();
     delete m_world;
     m_world = new World("Untitled");
     Room *room = m_world->addRoom("Room_001");
@@ -460,6 +556,7 @@ void MainWindow::newProject() {
     m_currentFilePath.clear();
 
     m_mapView->setWorld(m_world);
+    loadTilesetFromWorld();
     refreshExplorerTree();
     refreshRoomTabs();
     switchToRoom(0);
@@ -486,6 +583,9 @@ void MainWindow::openProject() {
 
     m_mapView->setWorld(m_world);
 
+    // Load tileset from the first layer that has one
+    loadTilesetFromWorld();
+
     // Select first room
     refreshExplorerTree();
     refreshRoomTabs();
@@ -500,6 +600,7 @@ void MainWindow::saveProject() {
         saveProjectAs();
         return;
     }
+    makeTilesetPathsRelative();
     QString error;
     if (!WorldSerializer::saveToFile(*m_world, m_currentFilePath, &error)) {
         QMessageBox::warning(this, "Save Failed", error);
@@ -531,6 +632,71 @@ void MainWindow::updateWindowTitle() {
     setWindowTitle(title);
 }
 
+void MainWindow::makeTilesetPathsRelative() {
+    if (!m_world || m_currentFilePath.isEmpty()) return;
+    QString projectDir = QFileInfo(m_currentFilePath).absolutePath();
+    for (int ri = 0; ri < m_world->roomCount(); ++ri) {
+        Room *r = m_world->room(ri);
+        if (!r) continue;
+        for (int li = 0; li < r->layerCount(); ++li) {
+            Layer *l = r->layer(li);
+            if (!l) continue;
+            QString path = QString::fromStdString(l->tileset());
+            if (!path.isEmpty() && QFileInfo(path).isAbsolute()) {
+                QString rel = QDir(projectDir).relativeFilePath(path);
+                l->setTileset(rel.toStdString());
+            }
+        }
+    }
+}
+
+void MainWindow::loadTilesetFromWorld() {
+    if (!m_world) return;
+    // Find the first layer with a tileset path and load it
+    for (int ri = 0; ri < m_world->roomCount(); ++ri) {
+        Room *r = m_world->room(ri);
+        if (!r) continue;
+        for (int li = 0; li < r->layerCount(); ++li) {
+            Layer *l = r->layer(li);
+            if (!l) continue;
+            std::string ts = l->tileset();
+            if (!ts.empty()) {
+                QString path = QString::fromStdString(ts);
+                // Resolve relative path against project directory
+                if (QFileInfo(path).isRelative() && !m_currentFilePath.isEmpty())
+                    path = QDir(QFileInfo(m_currentFilePath).absolutePath()).absoluteFilePath(path);
+                if (QFile::exists(path)) {
+                    int tileSize = m_world->defaultTileSize();
+                    m_mapView->setAtlasTileSize(tileSize);
+                    m_mapView->loadSpritesheet(path);
+                    m_tilesetPanel->setSpritesheet(m_mapView->spritesheetImage(),
+                                                   m_mapView->atlasTileSize(),
+                                                   m_mapView->atlasCols());
+                    if (m_tilesetCombo) {
+                        m_tilesetCombo->blockSignals(true);
+                        m_tilesetCombo->clear();
+                        m_tilesetCombo->addItem(QFileInfo(path).fileName());
+                        m_tilesetCombo->blockSignals(false);
+                    }
+                    return;
+                }
+            }
+        }
+    }
+    // No tileset found — reset to procedural
+    int tileSize = m_world->defaultTileSize();
+    m_mapView->setAtlasTileSize(tileSize);
+    m_tilesetPanel->setSpritesheet(m_mapView->spritesheetImage(),
+                                   m_mapView->atlasTileSize(),
+                                   m_mapView->atlasCols());
+    if (m_tilesetCombo) {
+        m_tilesetCombo->blockSignals(true);
+        m_tilesetCombo->clear();
+        m_tilesetCombo->addItem("(procedural)");
+        m_tilesetCombo->blockSignals(false);
+    }
+}
+
 // ─── Menu bar ──────────────────────────────────────────────────────────────
 
 void MainWindow::setupMenuBar() {
@@ -547,12 +713,34 @@ void MainWindow::setupMenuBar() {
         QString path = QFileDialog::getOpenFileName(this, "Import Spritesheet",
             QString(), "Images (*.png *.bmp *.jpg *.jpeg);;All Files (*)");
         if (!path.isEmpty()) {
+            int ts = m_world ? m_world->defaultTileSize() : 32;
+            m_mapView->setAtlasTileSize(ts);
             if (!m_mapView->loadSpritesheet(path))
                 QMessageBox::warning(this, "Error", "Failed to load spritesheet.");
-            else
+            else {
+                QFileInfo fi(path);
+                if (m_tilesetCombo) {
+                    m_tilesetCombo->blockSignals(true);
+                    m_tilesetCombo->clear();
+                    m_tilesetCombo->addItem(fi.fileName());
+                    m_tilesetCombo->blockSignals(false);
+                }
                 m_tilesetPanel->setSpritesheet(m_mapView->spritesheetImage(),
-                                               MapView::atlasTileSize(),
-                                               MapView::atlasCols());
+                                               m_mapView->atlasTileSize(),
+                                               m_mapView->atlasCols());
+                // Save path on the active layer (relative if possible)
+                Room *room = m_world ? m_world->room(m_activeRoomIndex) : nullptr;
+                Layer *layer = room ? room->layer(m_activeLayerIndex) : nullptr;
+                if (layer) {
+                    QString projectDir = m_currentFilePath.isEmpty()
+                        ? QString()
+                        : QFileInfo(m_currentFilePath).absolutePath();
+                    QString relPath = projectDir.isEmpty()
+                        ? path
+                        : QDir(projectDir).relativeFilePath(path);
+                    layer->setTileset(relPath.toStdString());
+                }
+            }
         }
     });
     fileMenu->addSeparator();
@@ -729,7 +917,13 @@ void MainWindow::setupExplorerDock() {
     layout->addWidget(m_filterEdit);
 
     m_explorerTree = new QTreeWidget();
-    m_explorerTree->setHeaderHidden(true);
+    m_explorerTree->setColumnCount(3);
+    m_explorerTree->setHeaderLabels({"Name", "", ""});
+    m_explorerTree->setColumnWidth(kColVisible, 22);
+    m_explorerTree->setColumnWidth(kColLocked, 22);
+    m_explorerTree->header()->setStretchLastSection(false);
+    m_explorerTree->header()->setSectionResizeMode(kColName, QHeaderView::Stretch);
+    m_explorerTree->header()->setMinimumSectionSize(18);
     layout->addWidget(m_explorerTree, 1);
 
     auto *roomsLabel = new QLabel("Rooms");
@@ -880,9 +1074,9 @@ void MainWindow::setupBottomDock() {
     auto *tilesetLayout = new QVBoxLayout(tilesetPage);
 
     auto *toolsRow = new QHBoxLayout();
-    auto *tilesetCombo = new QComboBox();
-    tilesetCombo->addItems({"tileset_grass.png", "tileset_cave.png", "tileset_sky.png"});
-    toolsRow->addWidget(tilesetCombo);
+    m_tilesetCombo = new QComboBox();
+    m_tilesetCombo->addItem("(procedural)");
+    toolsRow->addWidget(m_tilesetCombo);
     toolsRow->addWidget(new QToolButton());
     auto *gridCheck = new QCheckBox("Grid");
     gridCheck->setChecked(true);
@@ -891,6 +1085,35 @@ void MainWindow::setupBottomDock() {
     toolsRow->addWidget(new QLabel("Size"));
     auto *sizeCombo = new QComboBox();
     sizeCombo->addItems({"16 x 16", "32 x 32", "64 x 64"});
+    // Set current from world's default
+    sizeCombo->blockSignals(true);
+    if (m_world) {
+        int cur = m_world->defaultTileSize();
+        int idx = sizeCombo->findText(QString("%1 x %2").arg(cur).arg(cur));
+        if (idx >= 0) sizeCombo->setCurrentIndex(idx);
+    }
+    sizeCombo->blockSignals(false);
+    connect(sizeCombo, &QComboBox::currentTextChanged, this, [this](const QString &text) {
+        QStringList parts = text.split("x");
+        if (parts.size() < 2) return;
+        bool ok = false;
+        int newSize = parts[0].trimmed().toInt(&ok);
+        if (!ok || newSize < 1) return;
+        if (!m_world) return;
+        m_world->setDefaultTileSize(newSize);
+        m_mapView->setAtlasTileSize(newSize);
+        // Update all rooms to use the new tile size
+        for (int i = 0; i < m_world->roomCount(); ++i) {
+            Room *r = m_world->room(i);
+            if (r) r->setTileSize(newSize);
+        }
+        // Refresh tileset panel
+        m_tilesetPanel->setSpritesheet(m_mapView->spritesheetImage(),
+                                       m_mapView->atlasTileSize(),
+                                       m_mapView->atlasCols());
+        updateRoomSizeLabel();
+        m_mapView->update();
+    });
     toolsRow->addWidget(sizeCombo);
     auto *zoomSlider = new QSlider(Qt::Horizontal);
     zoomSlider->setFixedWidth(120);

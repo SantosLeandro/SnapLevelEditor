@@ -33,6 +33,9 @@ public:
     const std::string& name() const { return m_name; }
     void setName(const std::string& name) { m_name = name; }
 
+    const std::string& tileset() const { return m_tileset; }
+    void setTileset(const std::string &path) { m_tileset = path; }
+
     int width() const { return m_width; }
     int height() const { return m_height; }
 
@@ -65,6 +68,7 @@ private:
     bool m_locked = false;
     float m_opacity = 1.0f;
     int m_zOrder = 0;
+    std::string m_tileset;
 
     int index(int x, int y) const;
     void checkCoords(int x, int y) const;

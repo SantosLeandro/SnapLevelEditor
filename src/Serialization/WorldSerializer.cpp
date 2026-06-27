@@ -39,7 +39,6 @@ QJsonDocument WorldSerializer::toJson(const World &world) {
         rObj["name"] = QString::fromStdString(room->name());
         rObj["width"] = room->width();
         rObj["height"] = room->height();
-        rObj["tileSize"] = room->tileSize();
         rObj["x"] = room->worldX();
         rObj["y"] = room->worldY();
 
@@ -52,18 +51,15 @@ QJsonDocument WorldSerializer::toJson(const World &world) {
             lObj["locked"] = layer->locked();
             lObj["opacity"] = layer->opacity();
             lObj["zOrder"] = layer->zOrder();
+            lObj["tileset"] = QString::fromStdString(layer->tileset());
 
-            QJsonArray tiles;
-            for (int y = 0; y < layer->height(); ++y) {
-                for (int x = 0; x < layer->width(); ++x) {
-                    int id = layer->tileId(x, y);
-                    if (id < 0) continue;
-                    QJsonObject t;
-                    t["x"] = x; t["y"] = y; t["id"] = id;
-                    tiles.append(t);
-                }
-            }
-            lObj["tiles"] = tiles;
+            // Pack tiles as comma-separated string (row-major)
+            QStringList tileStrs;
+            tileStrs.reserve(layer->width() * layer->height());
+            for (int y = 0; y < layer->height(); ++y)
+                for (int x = 0; x < layer->width(); ++x)
+                    tileStrs << QString::number(layer->tileId(x, y));
+            lObj["tiles"] = tileStrs.join(',');
 
             QJsonArray objects;
             for (const auto &go : layer->objects()) {
@@ -119,7 +115,8 @@ std::unique_ptr<World> WorldSerializer::fromJson(const QJsonDocument &doc, QStri
         QString roomName = s(rObj, "name", "Unnamed");
         int rw = i(rObj, "width", 20);
         int rh = i(rObj, "height", 15);
-        int ts = i(rObj, "tileSize", 32);
+        // Use world's default tile size, but allow per-room override for old files
+        int ts = rObj.contains("tileSize") ? i(rObj, "tileSize", 32) : world->defaultTileSize();
 
         auto room = std::make_unique<Room>(roomName.toStdString(), rw, rh, ts);
         room->setWorldX(i(rObj, "x", 0));
@@ -135,15 +132,30 @@ std::unique_ptr<World> WorldSerializer::fromJson(const QJsonDocument &doc, QStri
             layer->setLocked(b(lObj, "locked", false));
             layer->setOpacity((float)d(lObj, "opacity", 1.0));
             layer->setZOrder(i(lObj, "zOrder", 0));
+            layer->setTileset(s(lObj, "tileset").toStdString());
 
-            QJsonArray tilesArr = lObj["tiles"].toArray();
-            for (const auto &tv : tilesArr) {
-                QJsonObject tObj = tv.toObject();
-                int tx = i(tObj, "x");
-                int ty = i(tObj, "y");
-                int id = i(tObj, "id", -1);
-                if (tx >= 0 && tx < rw && ty >= 0 && ty < rh && id >= 0)
-                    layer->setTile(tx, ty, id);
+            if (lObj["tiles"].isArray()) {
+                // Old format: sparse array of {x, y, id} objects
+                QJsonArray tilesArr = lObj["tiles"].toArray();
+                for (const auto &tv : tilesArr) {
+                    QJsonObject tObj = tv.toObject();
+                    int tx = i(tObj, "x");
+                    int ty = i(tObj, "y");
+                    int id = i(tObj, "id", -1);
+                    if (tx >= 0 && tx < rw && ty >= 0 && ty < rh && id >= 0)
+                        layer->setTile(tx, ty, id);
+                }
+            } else {
+                // New format: comma-separated string, row-major
+                QStringList ids = s(lObj, "tiles").split(',', Qt::SkipEmptyParts);
+                for (int idx = 0; idx < ids.size(); ++idx) {
+                    int tx = idx % rw;
+                    int ty = idx / rw;
+                    bool ok = false;
+                    int id = ids[idx].toInt(&ok);
+                    if (ok && tx >= 0 && tx < rw && ty >= 0 && ty < rh)
+                        layer->setTile(tx, ty, id);
+                }
             }
 
             QJsonArray objectsArr = lObj["objects"].toArray();

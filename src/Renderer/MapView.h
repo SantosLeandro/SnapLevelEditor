@@ -64,8 +64,10 @@ public:
     void centerOn(float worldX, float worldY);
 
     const QImage &spritesheetImage() const { return m_spritesheetImage; }
-    static constexpr int atlasTileSize() { return kAtlasTileSize; }
-    static constexpr int atlasCols() { return kAtlasCols; }
+    int atlasTileSize() const { return m_atlasTileSize; }
+    int atlasCols() const { return m_atlasCols; }
+    void setAtlasTileSize(int size);
+    void setAtlasCols(int cols) { m_atlasCols = cols; }
 
     bool loadSpritesheet(const QString &path);
 
@@ -74,6 +76,7 @@ signals:
     void toolChanged(ToolType tool);
     void objectSelected(int64_t objectId, int layerIndex);
     void zoomChanged(double zoom);
+    void objectsChanged();
 
 protected:
     void initializeGL() override;
@@ -135,6 +138,10 @@ private:
     // Object type override (from m_goTypeList)
     QString m_objectType;
 
+    // Atlas parameters (dynamic, set from World::defaultTileSize)
+    int m_atlasTileSize = 32;
+    int m_atlasCols = 16;
+
     // OpenGL
     GLuint m_program = 0;
     GLuint m_tileVAO = 0;
@@ -152,9 +159,4 @@ private:
     QString m_spritesheetPath;
 
     QMatrix4x4 m_projView;
-
-    static constexpr int kAtlasTileSize = 32;
-    static constexpr int kAtlasCols = 16;
-    static constexpr int kAtlasRows = 4;
-    static constexpr int kAtlasTileCount = kAtlasCols * kAtlasRows;
 };

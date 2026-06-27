@@ -18,6 +18,8 @@ class MapView;
 class TilesetPanel;
 class World;
 class Room;
+class Layer;
+class QIcon;
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -55,9 +57,18 @@ private:
     void saveProject();
     bool saveProjectAs();
     void updateWindowTitle();
+    void loadTilesetFromWorld();
+    void makeTilesetPathsRelative();
+
+    // Tree columns
+    enum TreeCol { kColName = 0, kColVisible = 1, kColLocked = 2 };
 
     // Tree item type tags
     enum ItemTag { Tag_Room = 1, Tag_Layer = 2, Tag_GameObject = 3, Tag_Container = 4 };
+
+    static QIcon makeEyeIcon(bool visible);
+    static QIcon makeLockIcon(bool locked);
+    void updateLayerTreeItem(QTreeWidgetItem *item, int roomIdx, int layerIdx);
 
     // Data
     World *m_world = nullptr;
@@ -93,6 +104,7 @@ private:
     QTabWidget *m_bottomTabs = nullptr;
     TilesetPanel *m_tilesetPanel = nullptr;
     QListWidget *m_goTypeList = nullptr;
+    QComboBox *m_tilesetCombo = nullptr;
 
     // State
     int m_activeRoomIndex = 0;

@@ -70,6 +70,9 @@ MapView::~MapView() {
 
 void MapView::setWorld(World *world) {
     m_world = world;
+    if (world && world->defaultTileSize() != m_atlasTileSize) {
+        setAtlasTileSize(world->defaultTileSize());
+    }
     delete m_pendingCmd;
     m_pendingCmd = nullptr;
     m_leftDown = false;
@@ -161,12 +164,42 @@ void MapView::centerOn(float worldX, float worldY) {
     update();
 }
 
+void MapView::setAtlasTileSize(int size) {
+    if (size < 1) return;
+    m_atlasTileSize = size;
+    if (!m_spritesheetPath.isEmpty()) {
+        // Reload the imported spritesheet with the new tile size
+        loadSpritesheet(m_spritesheetPath);
+    } else {
+        // Regenerate procedural spritesheet with new tile size
+        makeCurrent();
+        generateSpritesheet();
+        if (isValid()) {
+            if (m_spritesheet) {
+                delete m_spritesheet;
+                m_spritesheet = nullptr;
+            }
+            m_spritesheet = new QOpenGLTexture(m_spritesheetImage);
+            m_spritesheet->setMinMagFilters(QOpenGLTexture::Nearest, QOpenGLTexture::Nearest);
+            m_spritesheet->setWrapMode(QOpenGLTexture::ClampToEdge);
+        }
+        doneCurrent();
+    }
+    update();
+}
+
 bool MapView::loadSpritesheet(const QString &path) {
     QImage img(path);
     if (img.isNull()) return false;
 
     m_spritesheetImage = img.convertToFormat(QImage::Format_RGBA8888);
     m_spritesheetPath = path;
+
+    // Compute columns from image dimensions / tile size
+    if (m_atlasTileSize > 0 && m_spritesheetImage.width() >= m_atlasTileSize)
+        m_atlasCols = m_spritesheetImage.width() / m_atlasTileSize;
+    else
+        m_atlasCols = 16;
 
     if (isValid()) {
         makeCurrent();
@@ -186,36 +219,46 @@ bool MapView::loadSpritesheet(const QString &path) {
 // ─── Spritesheet ───────────────────────────────────────────────────────────
 
 void MapView::generateSpritesheet() {
-    int w = kAtlasCols * kAtlasTileSize;
-    int h = kAtlasRows * kAtlasTileSize;
+    int rows = 4;
+    m_atlasCols = 16;
+    int w = m_atlasCols * m_atlasTileSize;
+    int h = rows * m_atlasTileSize;
+    int tileCount = m_atlasCols * rows;
     m_spritesheetImage = QImage(w, h, QImage::Format_RGBA8888);
     m_spritesheetImage.fill(Qt::transparent);
 
     QPainter p(&m_spritesheetImage);
     p.setRenderHint(QPainter::Antialiasing, false);
-    for (int i = 0; i < kAtlasTileCount; ++i) {
-        int col = i % kAtlasCols;
-        int row = i / kAtlasCols;
-        int x = col * kAtlasTileSize;
-        int y = row * kAtlasTileSize;
+    for (int i = 0; i < tileCount; ++i) {
+        int col = i % m_atlasCols;
+        int row = i / m_atlasCols;
+        int x = col * m_atlasTileSize;
+        int y = row * m_atlasTileSize;
         QColor c = tileColor(i);
-        p.fillRect(x + 1, y + 1, kAtlasTileSize - 2, kAtlasTileSize - 2, c);
+        p.fillRect(x + 1, y + 1, m_atlasTileSize - 2, m_atlasTileSize - 2, c);
         p.setPen(c.darker(150));
-        p.drawRect(x, y, kAtlasTileSize - 1, kAtlasTileSize - 1);
+        p.drawRect(x, y, m_atlasTileSize - 1, m_atlasTileSize - 1);
     }
     p.end();
 }
 
 void MapView::tileUV(int tileId, float &u0, float &v0, float &u1, float &v1) const {
-    int id = qAbs(tileId) % kAtlasTileCount;
-    int col = id % kAtlasCols;
-    int row = id / kAtlasCols;
+    if (m_spritesheetImage.isNull()) return;
     float tw = (float)m_spritesheetImage.width();
     float th = (float)m_spritesheetImage.height();
-    u0 = (col * kAtlasTileSize) / tw;
-    v0 = (row * kAtlasTileSize) / th;
-    u1 = ((col + 1) * kAtlasTileSize) / tw;
-    v1 = ((row + 1) * kAtlasTileSize) / th;
+    if (tw < 1 || th < 1) return;
+    int cols = (int)tw / m_atlasTileSize;
+    if (cols < 1) cols = 1;
+    int rows = (int)th / m_atlasTileSize;
+    int totalTiles = cols * rows;
+    if (totalTiles < 1) totalTiles = 1;
+    int id = qAbs(tileId) % totalTiles;
+    int col = id % cols;
+    int row = id / cols;
+    u0 = (col * m_atlasTileSize) / tw;
+    v0 = (row * m_atlasTileSize) / th;
+    u1 = ((col + 1) * m_atlasTileSize) / tw;
+    v1 = ((row + 1) * m_atlasTileSize) / th;
 }
 
 // ─── OpenGL lifecycle ──────────────────────────────────────────────────────
@@ -819,6 +862,7 @@ void MapView::mousePressEvent(QMouseEvent *event) {
                     delete cmd;
                 }
                 emit objectSelected(obj.id, m_activeLayerIndex);
+                emit objectsChanged();
                 update();
             }
             break;
