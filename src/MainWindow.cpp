@@ -418,6 +418,9 @@ void MainWindow::refreshExplorerTree() {
         layersItem->setExpanded(true);
         goItem->setExpanded(true);
     }
+
+    // Repaint the map view to reflect model changes (e.g. after undo/redo)
+    if (m_mapView) m_mapView->update();
 }
 
 // ─── Signal connections ────────────────────────────────────────────────────
@@ -853,7 +856,13 @@ void MainWindow::setupMenuBar() {
         }
     }
 
-    for (const QString &name : {"Edit", "View", "Room", "Layer",
+    // Edit menu with real Undo/Redo
+    {
+        QMenu *menu = bar->addMenu("Edit");
+        menu->addAction("Undo", QKeySequence::Undo, m_undoStack, &QUndoStack::undo);
+        menu->addAction("Redo", QKeySequence::Redo, m_undoStack, &QUndoStack::redo);
+    }
+    for (const QString &name : {"View", "Room", "Layer",
                                 "Tools", "GameObject", "Build", "Help"}) {
         QMenu *menu = bar->addMenu(name);
         menu->addAction(name + " (coming soon)");
