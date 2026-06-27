@@ -478,26 +478,72 @@ void MapView::paintGL() {
         glDrawArrays(GL_TRIANGLES, 0, overlayVerts.size());
     }
 
-    // Object placement preview (ghost)
+    // Object placement preview (sprite ghost + outline)
     if (m_showPreview) {
         Room *r = activeRoom();
         if (r) {
-            QColor ghost = objectColor(m_objectType.isEmpty() ? QString("Coin") : m_objectType);
-            ghost.setAlpha(100);
-            QVector<Vertex> pv;
-            float px = r->worldX() + m_previewWorldPos.x();
-            float py = r->worldY() + m_previewWorldPos.y();
-            quad(pv, px, py, m_previewSize.width(), m_previewSize.height(), ghost);
-            QColor border = ghost.lighter(150);
-            border.setAlpha(180);
-            quad(pv, px - 1, py - 1, m_previewSize.width() + 2, m_previewSize.height() + 2, border);
-            if (!pv.isEmpty()) {
-                m_whiteTex->bind(0);
-                glBindVertexArray(m_tileVAO);
-                glBindBuffer(GL_ARRAY_BUFFER, m_tileVBO);
-                glBufferData(GL_ARRAY_BUFFER, pv.size() * (int)sizeof(Vertex),
-                             pv.constData(), GL_DYNAMIC_DRAW);
-                glDrawArrays(GL_TRIANGLES, 0, pv.size());
+            float x = r->worldX() + m_previewWorldPos.x();
+            float y = r->worldY() + m_previewWorldPos.y();
+            float w = m_previewSize.width(), h = m_previewSize.height();
+
+            // Semi-transparent sprite from definition
+            if (m_goDefMgr) {
+                const GameObjectDef *def = m_goDefMgr->definition(m_objectType);
+                if (def) {
+                    QOpenGLTexture *tex = m_defTextures.value(def->textureFile);
+                    if (!tex) {
+                        const QImage *img = m_goDefMgr->textureImage(def->textureFile);
+                        if (img && !img->isNull()) {
+                            tex = new QOpenGLTexture(*img);
+                            tex->setMinMagFilters(QOpenGLTexture::Nearest, QOpenGLTexture::Nearest);
+                            tex->setWrapMode(QOpenGLTexture::ClampToEdge);
+                            m_defTextures[def->textureFile] = tex;
+                        }
+                    }
+                    if (tex) {
+                        const QRect &sr = def->spriteRect;
+                        const QImage *img = m_goDefMgr->textureImage(def->textureFile);
+                        float texW = img ? (float)img->width() : 1.0f;
+                        float texH = img ? (float)img->height() : 1.0f;
+                        float u0 = (float)sr.x() / texW;
+                        float v0 = (float)sr.y() / texH;
+                        float u1 = (float)(sr.x() + sr.width()) / texW;
+                        float v1 = (float)(sr.y() + sr.height()) / texH;
+
+                        QVector<Vertex> sv;
+                        int start = sv.size();
+                        texQuad(sv, x, y, w, h, u0, v0, u1, v1);
+                        for (int i = start; i < sv.size(); ++i)
+                            sv[i].a = 0.45f;
+
+                        tex->bind(0);
+                        glBindVertexArray(m_tileVAO);
+                        glBindBuffer(GL_ARRAY_BUFFER, m_tileVBO);
+                        glBufferData(GL_ARRAY_BUFFER, sv.size() * (int)sizeof(Vertex),
+                                     sv.constData(), GL_DYNAMIC_DRAW);
+                        glDrawArrays(GL_TRIANGLES, 0, sv.size());
+                    }
+                }
+            }
+
+            // Outline border
+            {
+                QColor c = objectColor(m_objectType.isEmpty() ? QString("Coin") : m_objectType);
+                c.setAlpha(200);
+                QVector<Vertex> bv;
+                float bw = 2.0f;
+                quad(bv, x - bw, y - bw, w + bw * 2, bw, c);
+                quad(bv, x - bw, y + h, w + bw * 2, bw, c);
+                quad(bv, x - bw, y, bw, h, c);
+                quad(bv, x + w, y, bw, h, c);
+                if (!bv.isEmpty()) {
+                    m_whiteTex->bind(0);
+                    glBindVertexArray(m_tileVAO);
+                    glBindBuffer(GL_ARRAY_BUFFER, m_tileVBO);
+                    glBufferData(GL_ARRAY_BUFFER, bv.size() * (int)sizeof(Vertex),
+                                 bv.constData(), GL_DYNAMIC_DRAW);
+                    glDrawArrays(GL_TRIANGLES, 0, bv.size());
+                }
             }
         }
     }
