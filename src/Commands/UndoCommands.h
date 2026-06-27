@@ -25,6 +25,19 @@ private:
     QVector<Change> m_changes;
 };
 
+// ─── Delete game object ────────────────────────────────────────────────────
+
+class DeleteObjectCommand : public QUndoCommand {
+public:
+    DeleteObjectCommand(Layer *layer, const GameObject &obj,
+                        QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+private:
+    Layer *m_layer;
+    GameObject m_obj;
+};
+
 // ─── Add game object ───────────────────────────────────────────────────────
 
 class AddObjectCommand : public QUndoCommand {

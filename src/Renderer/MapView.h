@@ -56,6 +56,8 @@ public:
     void setObjectType(const QString &type) { m_objectType = type; }
     const QString &objectType() const { return m_objectType; }
 
+    void selectObject(int64_t objectId, int layerIndex);
+
     double zoom() const { return m_zoom; }
     void setZoom(double zoom);
     void zoomIn();
@@ -86,6 +88,7 @@ protected:
     void mousePressEvent(QMouseEvent *event) override;
     void mouseReleaseEvent(QMouseEvent *event) override;
     void wheelEvent(QWheelEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
 
 private:
     void quad(QVector<Vertex> &v, float x, float y, float w, float h,
@@ -137,6 +140,10 @@ private:
 
     // Object type override (from m_goTypeList)
     QString m_objectType;
+
+    // Currently selected game object
+    int64_t m_selectedObjectId = -1;
+    int m_selectedObjectLayer = -1;
 
     // Atlas parameters (dynamic, set from World::defaultTileSize)
     int m_atlasTileSize = 32;

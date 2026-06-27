@@ -27,6 +27,25 @@ void TileEditCommand::redo() {
         m_layer->setTile(c.x, c.y, m_newId);
 }
 
+// ─── DeleteObjectCommand ────────────────────────────────────────────────────
+
+DeleteObjectCommand::DeleteObjectCommand(Layer *layer, const GameObject &obj,
+                                         QUndoCommand *parent)
+    : QUndoCommand(parent)
+    , m_layer(layer)
+    , m_obj(obj)
+{
+    setText(QString("Delete %1").arg(QString::fromStdString(obj.type)));
+}
+
+void DeleteObjectCommand::undo() {
+    m_layer->addObject(m_obj);
+}
+
+void DeleteObjectCommand::redo() {
+    m_layer->removeObject(m_obj.id);
+}
+
 // ─── AddObjectCommand ──────────────────────────────────────────────────────
 
 AddObjectCommand::AddObjectCommand(Layer *layer, const GameObject &obj,

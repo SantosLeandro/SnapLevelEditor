@@ -124,6 +124,24 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent) {
     connect(m_mapView, &MapView::objectsChanged, this, &MainWindow::refreshExplorerTree);
     connect(m_undoStack, &QUndoStack::indexChanged, this, &MainWindow::refreshExplorerTree);
 
+    // Mode indicator
+    auto updateModeLabel = [this](MapView::ToolType t) {
+        if (!m_modeLabel) return;
+        switch (t) {
+        case MapView::ToolType::Select:       m_modeLabel->setText("Mode: Select");  m_modeLabel->setStyleSheet("color:#5fb0ff; font-weight:bold; padding:0 8px;"); break;
+        case MapView::ToolType::Brush:
+        case MapView::ToolType::Erase:
+        case MapView::ToolType::Fill:
+        case MapView::ToolType::Rect:
+        case MapView::ToolType::Line:         m_modeLabel->setText("Mode: Tiles");   m_modeLabel->setStyleSheet("color:#9aa0a8; font-weight:bold; padding:0 8px;"); break;
+        case MapView::ToolType::GameObject:
+        case MapView::ToolType::Trigger:
+        case MapView::ToolType::Camera:       m_modeLabel->setText("Mode: Objects"); m_modeLabel->setStyleSheet("color:#caa15a; font-weight:bold; padding:0 8px;"); break;
+        }
+    };
+    connect(m_mapView, &MapView::toolChanged, this, updateModeLabel);
+    updateModeLabel(m_mapView->currentTool());
+
     // Connect zoom combo ↔ MapView
     m_mapView->setZoom(1.25);
     connect(m_zoomCombo, &QComboBox::currentTextChanged, this, [this](const QString &text) {
@@ -468,6 +486,7 @@ void MainWindow::connectSignals() {
                         int layerIdx = v[0].toInt();
                         int64_t objId = v[1].toLongLong();
                         updatePropertiesForObject(objId, layerIdx);
+                        m_mapView->selectObject(objId, layerIdx);
                     }
                 }
             });
@@ -529,6 +548,14 @@ void MainWindow::connectSignals() {
 // ─── Properties update ─────────────────────────────────────────────────────
 
 void MainWindow::updatePropertiesForObject(int64_t id, int layerIndex) {
+    if (id < 0) {
+        m_propNameEdit->clear();
+        m_propIdEdit->clear();
+        m_propPosX->setValue(0);
+        m_propPosY->setValue(0);
+        m_tileInfoId->setText("—");
+        return;
+    }
     Room *room = m_world ? m_world->room(m_activeRoomIndex) : nullptr;
     Layer *layer = room ? room->layer(layerIndex) : nullptr;
     if (!layer) return;
@@ -798,6 +825,10 @@ void MainWindow::setupToolBar() {
     auto *tools = new QActionGroup(this);
     tools->setExclusive(true);
     addToolAction(bar, QStyle::SP_FileDialogDetailedView, "Select", true, tools);
+    bar->addSeparator();
+
+    auto *tilesLabel = new QLabel("  Tiles"); tilesLabel->setStyleSheet("color:#9aa0a8; font-weight:bold;");
+    bar->addWidget(tilesLabel);
     QAction *brush = addToolAction(bar, QStyle::SP_DialogResetButton, "Brush", true, tools);
     addToolAction(bar, QStyle::SP_TrashIcon, "Erase", true, tools);
     addToolAction(bar, QStyle::SP_DialogApplyButton, "Fill", true, tools);
@@ -806,9 +837,11 @@ void MainWindow::setupToolBar() {
     brush->setChecked(true);
     bar->addSeparator();
 
-    addToolAction(bar, QStyle::SP_ComputerIcon, "GameObject", false);
-    addToolAction(bar, QStyle::SP_MessageBoxWarning, "Trigger", false);
-    addToolAction(bar, QStyle::SP_DesktopIcon, "Camera", false);
+    auto *objLabel = new QLabel("  Objects"); objLabel->setStyleSheet("color:#caa15a; font-weight:bold;");
+    bar->addWidget(objLabel);
+    addToolAction(bar, QStyle::SP_ComputerIcon, "GameObject", true, tools);
+    addToolAction(bar, QStyle::SP_MessageBoxWarning, "Trigger", true, tools);
+    addToolAction(bar, QStyle::SP_DesktopIcon, "Camera", true, tools);
     bar->addSeparator();
 
     QAction *play = addToolAction(bar, QStyle::SP_MediaPlay, "Play", false);
@@ -1157,6 +1190,9 @@ void MainWindow::setupBottomDock() {
 
 void MainWindow::setupStatusBar() {
     statusBar()->showMessage("Ready");
+    m_modeLabel = new QLabel("Mode: Tiles");
+    m_modeLabel->setStyleSheet("color:#9aa0a8; font-weight:bold; padding:0 8px;");
+    statusBar()->addPermanentWidget(m_modeLabel);
     statusBar()->addPermanentWidget(new QLabel("100%"));
     statusBar()->addPermanentWidget(new QLabel("Snap: ON"));
 }

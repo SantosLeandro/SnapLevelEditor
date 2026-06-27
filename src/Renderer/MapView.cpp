@@ -7,6 +7,7 @@
 
 #include <QMouseEvent>
 #include <QWheelEvent>
+#include <QKeyEvent>
 #include <QUndoStack>
 #include <QUndoCommand>
 #include <QtMath>
@@ -89,6 +90,8 @@ Room *MapView::activeRoom() const {
 
 void MapView::setActiveRoomIndex(int index) {
     m_activeRoomIndex = index;
+    m_selectedObjectId = -1;
+    m_selectedObjectLayer = -1;
     m_leftDown = false;
     m_dragging = false;
     delete m_pendingCmd;
@@ -103,15 +106,40 @@ void MapView::setTool(ToolType tool) {
     m_dragging = false;
     delete m_pendingCmd;
     m_pendingCmd = nullptr;
+    // Clear selection when switching away from Select
+    if (m_selectedObjectId >= 0) {
+        m_selectedObjectId = -1;
+        m_selectedObjectLayer = -1;
+    }
+    // Cursor per mode
+    switch (tool) {
+    case ToolType::Select:      setCursor(Qt::ArrowCursor); break;
+    case ToolType::Brush:
+    case ToolType::Erase:
+    case ToolType::Fill:
+    case ToolType::Rect:
+    case ToolType::Line:        setCursor(Qt::CrossCursor); break;
+    case ToolType::GameObject:
+    case ToolType::Trigger:
+    case ToolType::Camera:      setCursor(Qt::PointingHandCursor); break;
+    }
     emit toolChanged(tool);
 }
 
 void MapView::setActiveLayerIndex(int index) {
     m_activeLayerIndex = index;
+    m_selectedObjectId = -1;
+    m_selectedObjectLayer = -1;
 }
 
 void MapView::setSelectedTileId(int id) {
     m_selectedTileId = id;
+}
+
+void MapView::selectObject(int64_t objectId, int layerIndex) {
+    m_selectedObjectId = objectId;
+    m_selectedObjectLayer = layerIndex;
+    update();
 }
 
 void MapView::setZoom(double zoom) {
@@ -445,10 +473,15 @@ void MapView::buildObjectVertices(QVector<Vertex> &verts) {
                 QColor fill = objectColor(QString::fromStdString(obj.type));
                 fill.setAlpha(160);
                 quad(verts, ox + obj.x, oy + obj.y, obj.width, obj.height, fill);
-                QColor outline = fill.lighter(150);
-                outline.setAlpha(220);
-                quad(verts, ox + obj.x - 1, oy + obj.y - 1,
-                     obj.width + 2, obj.height + 2, outline);
+                // Highlight selected object with bright white/yellow border
+                bool selected = (obj.id == m_selectedObjectId && i == m_selectedObjectLayer);
+                QColor outline = selected ? QColor("#ffdd44")
+                                          : fill.lighter(150);
+                outline.setAlpha(selected ? 255 : 220);
+                quad(verts, ox + obj.x - (selected ? 2 : 1),
+                     oy + obj.y - (selected ? 2 : 1),
+                     obj.width + (selected ? 4 : 2),
+                     obj.height + (selected ? 4 : 2), outline);
             }
         }
     }
@@ -716,6 +749,7 @@ void MapView::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void MapView::mousePressEvent(QMouseEvent *event) {
+    setFocus();
     if (event->button() == Qt::MiddleButton) {
         m_panning = true;
         m_lastMouse = event->pos();
@@ -802,6 +836,8 @@ void MapView::mousePressEvent(QMouseEvent *event) {
             break;
 
         case ToolType::Select: {
+            m_selectedObjectId = -1;
+            m_selectedObjectLayer = -1;
             for (int i = 0; i < room->layerCount(); ++i) {
                 Layer *l = room->layer(i);
                 if (!l || !l->visible()) continue;
@@ -810,11 +846,17 @@ void MapView::mousePressEvent(QMouseEvent *event) {
                     float ow = obj.width, oh = obj.height;
                     if (world.x() >= ox2 && world.x() <= ox2 + ow &&
                         world.y() >= oy2 && world.y() <= oy2 + oh) {
+                        m_selectedObjectId = obj.id;
+                        m_selectedObjectLayer = i;
                         emit objectSelected(obj.id, i);
+                        update();
                         return;
                     }
                 }
             }
+            // Clicked empty space — clear selection
+            emit objectSelected(-1, -1);
+            update();
             break;
         }
 
@@ -957,6 +999,30 @@ void MapView::wheelEvent(QWheelEvent *event) {
     updateProjView();
     update();
     emit zoomChanged(m_zoom);
+}
+
+void MapView::keyPressEvent(QKeyEvent *event) {
+    if (event->key() == Qt::Key_Delete || event->key() == Qt::Key_Backspace) {
+        if (m_selectedObjectId < 0) return;
+        Room *room = activeRoom();
+        if (!room) return;
+        Layer *layer = room->layer(m_selectedObjectLayer);
+        if (!layer) return;
+        GameObject *obj = layer->object(m_selectedObjectId);
+        if (!obj) return;
+
+        auto *cmd = new DeleteObjectCommand(layer, *obj);
+        if (m_undoStack)
+            m_undoStack->push(cmd);
+        else {
+            cmd->redo();
+            delete cmd;
+        }
+        m_selectedObjectId = -1;
+        m_selectedObjectLayer = -1;
+        emit objectsChanged();
+        update();
+    }
 }
 
 // ─── Shader helpers ────────────────────────────────────────────────────────

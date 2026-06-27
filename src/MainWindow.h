@@ -88,6 +88,7 @@ private:
     QLabel *m_mouseLabel = nullptr;
     QLabel *m_tileLabel = nullptr;
     QLabel *m_layerLabel = nullptr;
+    QLabel *m_modeLabel = nullptr;
 
     // Right dock
     QTabWidget *m_propTabs = nullptr;
