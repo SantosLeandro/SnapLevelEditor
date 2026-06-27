@@ -94,6 +94,7 @@ void MapView::setActiveRoomIndex(int index) {
     m_selectedObjectLayer = -1;
     m_leftDown = false;
     m_dragging = false;
+    m_draggingObject = false;
     delete m_pendingCmd;
     m_pendingCmd = nullptr;
     update();
@@ -104,6 +105,7 @@ void MapView::setTool(ToolType tool) {
     m_tool = tool;
     m_leftDown = false;
     m_dragging = false;
+    m_draggingObject = false;
     delete m_pendingCmd;
     m_pendingCmd = nullptr;
     // Clear selection when switching away from Select
@@ -713,6 +715,23 @@ void MapView::mouseMoveEvent(QMouseEvent *event) {
         return;
     }
 
+    // Drag object (Select tool)
+    if (m_leftDown && m_draggingObject && m_tool == ToolType::Select && room) {
+        Layer *l = room->layer(m_dragObjectLayer);
+        if (l && !l->locked()) {
+            GameObject *obj = l->object(m_selectedObjectId);
+            if (obj) {
+                int ts = room->tileSize();
+                QPointF snapped = snapToTile(world, ts);
+                obj->x = snapped.x() - room->worldX();
+                obj->y = snapped.y() - room->worldY();
+                update();
+                emit objectsChanged();
+            }
+        }
+        return;
+    }
+
     // Drag tool
     if (m_leftDown && room) {
         Layer *layer = room->layer(m_activeLayerIndex);
@@ -836,27 +855,51 @@ void MapView::mousePressEvent(QMouseEvent *event) {
             break;
 
         case ToolType::Select: {
-            m_selectedObjectId = -1;
-            m_selectedObjectLayer = -1;
-            for (int i = 0; i < room->layerCount(); ++i) {
-                Layer *l = room->layer(i);
-                if (!l || !l->visible()) continue;
-                for (const GameObject &obj : l->objects()) {
-                    float ox2 = ox + obj.x, oy2 = oy + obj.y;
-                    float ow = obj.width, oh = obj.height;
-                    if (world.x() >= ox2 && world.x() <= ox2 + ow &&
-                        world.y() >= oy2 && world.y() <= oy2 + oh) {
-                        m_selectedObjectId = obj.id;
-                        m_selectedObjectLayer = i;
-                        emit objectSelected(obj.id, i);
-                        update();
-                        return;
+            // Check if clicking on the already-selected object → start drag
+            bool hitSelected = false;
+            if (m_selectedObjectId >= 0 && m_selectedObjectLayer >= 0) {
+                Layer *l = room->layer(m_selectedObjectLayer);
+                if (l && l->visible() && !l->locked()) {
+                    GameObject *sObj = l->object(m_selectedObjectId);
+                    if (sObj) {
+                        float ox2 = ox + sObj->x, oy2 = oy + sObj->y;
+                        if (world.x() >= ox2 && world.x() <= ox2 + sObj->width &&
+                            world.y() >= oy2 && world.y() <= oy2 + sObj->height) {
+                            m_draggingObject = true;
+                            m_dragObjStartPos = QPointF(sObj->x, sObj->y);
+                            m_dragObjectLayer = m_selectedObjectLayer;
+                            hitSelected = true;
+                        }
                     }
                 }
             }
-            // Clicked empty space — clear selection
-            emit objectSelected(-1, -1);
-            update();
+            if (!hitSelected) {
+                // Look for a different object
+                for (int i = 0; i < room->layerCount(); ++i) {
+                    Layer *l = room->layer(i);
+                    if (!l || !l->visible() || l->locked()) continue;
+                    for (const GameObject &obj : l->objects()) {
+                        float ox2 = ox + obj.x, oy2 = oy + obj.y;
+                        float ow = obj.width, oh = obj.height;
+                        if (world.x() >= ox2 && world.x() <= ox2 + ow &&
+                            world.y() >= oy2 && world.y() <= oy2 + oh) {
+                            m_selectedObjectId = obj.id;
+                            m_selectedObjectLayer = i;
+                            m_draggingObject = true;
+                            m_dragObjStartPos = QPointF(obj.x, obj.y);
+                            m_dragObjectLayer = i;
+                            emit objectSelected(obj.id, i);
+                            update();
+                            return;
+                        }
+                    }
+                }
+                // Clicked empty space — clear selection
+                m_selectedObjectId = -1;
+                m_selectedObjectLayer = -1;
+                emit objectSelected(-1, -1);
+                update();
+            }
             break;
         }
 
@@ -924,6 +967,33 @@ void MapView::mouseReleaseEvent(QMouseEvent *event) {
 
     if (event->button() == Qt::LeftButton && m_leftDown) {
         m_leftDown = false;
+
+        // Finalize object drag
+        if (m_draggingObject) {
+            m_draggingObject = false;
+            Room *room = activeRoom();
+            if (room) {
+                Layer *layer = room->layer(m_dragObjectLayer);
+                if (!layer) { m_dragging = false; return; }
+                GameObject *obj = layer->object(m_selectedObjectId);
+                if (obj) {
+                    QPointF newPos(obj->x, obj->y);
+                    if (newPos != m_dragObjStartPos) {
+                        auto *cmd = new MoveObjectCommand(layer, m_selectedObjectId,
+                                                          m_dragObjStartPos, newPos);
+                        if (m_undoStack)
+                            m_undoStack->push(cmd);
+                        else {
+                            cmd->redo();
+                            delete cmd;
+                        }
+                    }
+                }
+            }
+            m_dragging = false;
+            update();
+            return;
+        }
 
         if (m_dragging) {
             Room *room = activeRoom();

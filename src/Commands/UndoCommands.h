@@ -2,6 +2,7 @@
 
 #include <QUndoCommand>
 #include <QVector>
+#include <QPointF>
 #include <cstdint>
 #include "../Model/GameObject.h"
 
@@ -50,4 +51,20 @@ public:
 private:
     Layer *m_layer;
     GameObject m_obj;
+};
+
+// ─── Move game object ──────────────────────────────────────────────────────
+
+class MoveObjectCommand : public QUndoCommand {
+public:
+    MoveObjectCommand(Layer *layer, int64_t objectId,
+                      QPointF oldPos, QPointF newPos,
+                      QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+private:
+    Layer *m_layer;
+    int64_t m_objectId;
+    QPointF m_oldPos;
+    QPointF m_newPos;
 };

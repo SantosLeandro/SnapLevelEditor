@@ -134,6 +134,11 @@ private:
     int m_lastTx = -1;
     int m_lastTy = -1;
 
+    // Object drag
+    bool m_draggingObject = false;
+    QPointF m_dragObjStartPos;
+    int m_dragObjectLayer = -1;
+
     // Undo
     QUndoStack *m_undoStack = nullptr;
     QUndoCommand *m_pendingCmd = nullptr;

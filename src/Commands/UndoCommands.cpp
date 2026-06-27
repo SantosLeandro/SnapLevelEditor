@@ -1,5 +1,6 @@
 #include "UndoCommands.h"
 #include "../Model/Layer.h"
+#include <cmath>
 
 // ─── TileEditCommand ───────────────────────────────────────────────────────
 
@@ -63,4 +64,34 @@ void AddObjectCommand::undo() {
 
 void AddObjectCommand::redo() {
     m_layer->addObject(m_obj);
+}
+
+// ─── MoveObjectCommand ─────────────────────────────────────────────────────
+
+MoveObjectCommand::MoveObjectCommand(Layer *layer, int64_t objectId,
+                                     QPointF oldPos, QPointF newPos,
+                                     QUndoCommand *parent)
+    : QUndoCommand(parent)
+    , m_layer(layer)
+    , m_objectId(objectId)
+    , m_oldPos(oldPos)
+    , m_newPos(newPos)
+{
+    setText(QString("Move Object"));
+}
+
+void MoveObjectCommand::undo() {
+    GameObject *obj = m_layer->object(m_objectId);
+    if (obj) {
+        obj->x = m_oldPos.x();
+        obj->y = m_oldPos.y();
+    }
+}
+
+void MoveObjectCommand::redo() {
+    GameObject *obj = m_layer->object(m_objectId);
+    if (obj) {
+        obj->x = m_newPos.x();
+        obj->y = m_newPos.y();
+    }
 }
