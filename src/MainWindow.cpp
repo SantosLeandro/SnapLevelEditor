@@ -254,7 +254,7 @@ void MainWindow::switchToRoom(int index) {
         m_mapView->centerOn(room->worldX() + room->pixelWidth() / 2.0f,
                             room->worldY() + room->pixelHeight() / 2.0f);
     updateRoomSizeLabel();
-    updateRoomPositionFields();
+    updateRoomProperties();
     updateLayerLabel();
     updateWindowTitle();
 }
@@ -306,9 +306,26 @@ void MainWindow::updateRoomSizeLabel() {
     }
 }
 
-void MainWindow::updateRoomPositionFields() {
+void MainWindow::updateRoomProperties() {
     Room *room = m_world ? m_world->room(m_activeRoomIndex) : nullptr;
-    if (room && m_roomPosX && m_roomPosY) {
+    if (!room) return;
+
+    if (m_roomNameEdit) {
+        m_roomNameEdit->blockSignals(true);
+        m_roomNameEdit->setText(QString::fromStdString(room->name()));
+        m_roomNameEdit->blockSignals(false);
+    }
+    if (m_roomWidth) {
+        m_roomWidth->blockSignals(true);
+        m_roomWidth->setValue(room->width());
+        m_roomWidth->blockSignals(false);
+    }
+    if (m_roomHeight) {
+        m_roomHeight->blockSignals(true);
+        m_roomHeight->setValue(room->height());
+        m_roomHeight->blockSignals(false);
+    }
+    if (m_roomPosX && m_roomPosY) {
         m_roomPosX->blockSignals(true);
         m_roomPosY->blockSignals(true);
         m_roomPosX->setValue(room->worldX());
@@ -538,7 +555,38 @@ void MainWindow::connectSignals() {
                 }
             });
 
-    // Room position editing
+    // Room property editing
+    if (m_roomNameEdit) {
+        connect(m_roomNameEdit, &QLineEdit::editingFinished, this, [this]() {
+            Room *room = m_world ? m_world->room(m_activeRoomIndex) : nullptr;
+            if (room) {
+                room->setName(m_roomNameEdit->text().toStdString());
+                refreshRoomTabs();
+                updateWindowTitle();
+                m_mapView->update();
+            }
+        });
+    }
+    if (m_roomWidth) {
+        connect(m_roomWidth, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int val) {
+            Room *room = m_world ? m_world->room(m_activeRoomIndex) : nullptr;
+            if (room) {
+                room->resize(val, room->height());
+                updateRoomSizeLabel();
+                m_mapView->update();
+            }
+        });
+    }
+    if (m_roomHeight) {
+        connect(m_roomHeight, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int val) {
+            Room *room = m_world ? m_world->room(m_activeRoomIndex) : nullptr;
+            if (room) {
+                room->resize(room->width(), val);
+                updateRoomSizeLabel();
+                m_mapView->update();
+            }
+        });
+    }
     if (m_roomPosX && m_roomPosY) {
         connect(m_roomPosX, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int val) {
             Room *room = m_world ? m_world->room(m_activeRoomIndex) : nullptr;
@@ -1139,8 +1187,16 @@ void MainWindow::setupPropertiesDock() {
 
     propsLayout->addWidget(goGroup);
 
-    auto *roomGroup = new QGroupBox("Room Position");
+    auto *roomGroup = new QGroupBox("Room");
     auto *roomForm = new QFormLayout(roomGroup);
+    m_roomNameEdit = new QLineEdit();
+    roomForm->addRow("Name", m_roomNameEdit);
+    m_roomWidth = new QSpinBox();
+    m_roomWidth->setRange(1, 999);
+    roomForm->addRow("Width (tiles)", m_roomWidth);
+    m_roomHeight = new QSpinBox();
+    m_roomHeight->setRange(1, 999);
+    roomForm->addRow("Height (tiles)", m_roomHeight);
     m_roomPosX = new QSpinBox();
     m_roomPosX->setRange(-99999, 99999);
     m_roomPosY = new QSpinBox();

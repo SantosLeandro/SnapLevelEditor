@@ -49,7 +49,7 @@ private:
     void setActiveLayer(int index);
     void updateLayerLabel();
     void updateRoomSizeLabel();
-    void updateRoomPositionFields();
+    void updateRoomProperties();
     void updatePropertiesForObject(int64_t id, int layerIndex);
     void populateGameObjectList();
 
@@ -99,6 +99,9 @@ private:
     QLineEdit *m_propIdEdit = nullptr;
     QSpinBox *m_propPosX = nullptr;
     QSpinBox *m_propPosY = nullptr;
+    QLineEdit *m_roomNameEdit = nullptr;
+    QSpinBox *m_roomWidth = nullptr;
+    QSpinBox *m_roomHeight = nullptr;
     QSpinBox *m_roomPosX = nullptr;
     QSpinBox *m_roomPosY = nullptr;
     QLabel *m_tileInfoId = nullptr;
