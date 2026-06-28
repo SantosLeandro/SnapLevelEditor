@@ -562,6 +562,7 @@ void MainWindow::connectSignals() {
             if (room) {
                 room->setName(m_roomNameEdit->text().toStdString());
                 refreshRoomTabs();
+                refreshExplorerTree();
                 updateWindowTitle();
                 m_mapView->update();
             }
