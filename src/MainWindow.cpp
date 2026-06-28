@@ -469,6 +469,7 @@ void MainWindow::connectTools() {
         else if (t == "Camera")     connect(a, &QAction::triggered, this, [setTool]{ setTool(MapView::ToolType::Camera); });
         else if (t == "Undo")       connect(a, &QAction::triggered, m_undoStack, &QUndoStack::undo);
         else if (t == "Redo")       connect(a, &QAction::triggered, m_undoStack, &QUndoStack::redo);
+        else if (t == "Snap")       connect(a, &QAction::toggled, m_mapView, &MapView::setSnapEnabled);
     }
 
     connect(m_mapView, &MapView::objectSelected, this, &MainWindow::updatePropertiesForObject);
@@ -975,6 +976,10 @@ void MainWindow::setupToolBar() {
     addToolAction(bar, QStyle::SP_DesktopIcon, "Camera", true, tools);
     bar->addSeparator();
 
+    auto *snapAction = addToolAction(bar, QStyle::SP_DialogApplyButton, "Snap", true);
+    snapAction->setChecked(true);
+    bar->addSeparator();
+
     QAction *play = addToolAction(bar, QStyle::SP_MediaPlay, "Play", false);
     play->setIconText("Play");
 }
@@ -1334,7 +1339,13 @@ void MainWindow::setupStatusBar() {
     m_modeLabel->setStyleSheet("color:#9aa0a8; font-weight:bold; padding:0 8px;");
     statusBar()->addPermanentWidget(m_modeLabel);
     statusBar()->addPermanentWidget(new QLabel("100%"));
-    statusBar()->addPermanentWidget(new QLabel("Snap: ON"));
+    m_snapLabel = new QLabel("Snap: ON");
+    statusBar()->addPermanentWidget(m_snapLabel);
+
+    if (m_mapView)
+        connect(m_mapView, &MapView::snapEnabledChanged, this, [this](bool on) {
+            m_snapLabel->setText(on ? "Snap: ON" : "Snap: OFF");
+        });
 }
 
 void MainWindow::populateGameObjectList() {

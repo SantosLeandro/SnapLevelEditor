@@ -76,6 +76,9 @@ public:
 
     void setGameObjectDefManager(const GameObjectDefManager *mgr) { m_goDefMgr = mgr; }
 
+    bool snapEnabled() const { return m_snapEnabled; }
+    void setSnapEnabled(bool on);
+
     double zoom() const { return m_zoom; }
     void setZoom(double zoom);
     void zoomIn();
@@ -97,6 +100,7 @@ signals:
     void objectSelected(int64_t objectId, int layerIndex);
     void zoomChanged(double zoom);
     void objectsChanged();
+    void snapEnabledChanged(bool on);
 
 protected:
     void initializeGL() override;
@@ -166,6 +170,7 @@ private:
 
     // Object type override (from m_goTypeList)
     QString m_objectType;
+    bool m_snapEnabled = true;
 
     // Placement preview (GameObject/Trigger/Camera tools)
     QPointF m_previewWorldPos;

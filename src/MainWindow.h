@@ -107,6 +107,7 @@ private:
     QLabel *m_tileInfoId = nullptr;
     QLabel *m_tileInfoSprite = nullptr;
     QLabel *m_tileInfoDef = nullptr;
+    QLabel *m_snapLabel = nullptr;
 
     // Bottom dock
     QTabWidget *m_bottomTabs = nullptr;

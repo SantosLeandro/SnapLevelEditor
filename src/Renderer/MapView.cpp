@@ -884,6 +884,13 @@ QPointF MapView::snapToTile(const QPointF &world, int tileSize) const {
     return QPointF((float)(tx * tileSize), (float)(ty * tileSize));
 }
 
+void MapView::setSnapEnabled(bool on) {
+    if (m_snapEnabled == on) return;
+    m_snapEnabled = on;
+    emit snapEnabledChanged(on);
+    update();
+}
+
 // ─── Tool operations ───────────────────────────────────────────────────────
 
 void MapView::applyBrush(int tx, int ty) {
@@ -988,7 +995,7 @@ void MapView::mouseMoveEvent(QMouseEvent *event) {
             GameObject *obj = l->object(m_selectedObjectId);
             if (obj) {
                 int ts = room->tileSize();
-                QPointF snapped = snapToTile(world, ts);
+                QPointF snapped = m_snapEnabled ? snapToTile(world, ts) : world;
                 obj->x = snapped.x() - room->worldX();
                 obj->y = snapped.y() - room->worldY();
                 update();
@@ -1034,10 +1041,10 @@ void MapView::mouseMoveEvent(QMouseEvent *event) {
 
     // Placement preview for game object tools
     if (m_showPreview && room) {
-        QPointF snapped = snapToTile(world, room->tileSize());
+        QPointF p = m_snapEnabled ? snapToTile(world, room->tileSize()) : world;
         m_previewWorldPos = QPointF(
-            snapped.x() - room->worldX(),
-            snapped.y() - room->worldY()
+            p.x() - room->worldX(),
+            p.y() - room->worldY()
         );
         update();
     }
@@ -1185,8 +1192,13 @@ void MapView::mousePressEvent(QMouseEvent *event) {
             if (layer && !layer->locked()) {
                 GameObject obj;
                 obj.id = GameObject::nextId();
-                obj.x = (float)(tx * ts);
-                obj.y = (float)(ty * ts);
+                if (m_snapEnabled) {
+                    obj.x = (float)(tx * ts);
+                    obj.y = (float)(ty * ts);
+                } else {
+                    obj.x = world.x() - ox;
+                    obj.y = world.y() - oy;
+                }
                 obj.width = 24.0f;
                 obj.height = 24.0f;
 
