@@ -1,5 +1,6 @@
 #include "UndoCommands.h"
 #include "../Model/Layer.h"
+#include "../Model/Room.h"
 #include <cmath>
 
 // ─── TileEditCommand ───────────────────────────────────────────────────────
@@ -127,4 +128,28 @@ void SetObjectSpriteCommand::redo() {
         obj->properties.erase("spriteId");
     else
         obj->properties["spriteId"] = m_newSpriteId;
+}
+
+// ─── MoveRoomCommand ────────────────────────────────────────────────────────
+
+MoveRoomCommand::MoveRoomCommand(Room *room, int oldX, int oldY, int newX, int newY,
+                                 QUndoCommand *parent)
+    : QUndoCommand(parent)
+    , m_room(room)
+    , m_oldX(oldX)
+    , m_oldY(oldY)
+    , m_newX(newX)
+    , m_newY(newY)
+{
+    setText(QString("Move Room"));
+}
+
+void MoveRoomCommand::undo() {
+    m_room->setWorldX(m_oldX);
+    m_room->setWorldY(m_oldY);
+}
+
+void MoveRoomCommand::redo() {
+    m_room->setWorldX(m_newX);
+    m_room->setWorldY(m_newY);
 }

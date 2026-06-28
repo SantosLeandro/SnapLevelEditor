@@ -101,6 +101,7 @@ signals:
     void zoomChanged(double zoom);
     void objectsChanged();
     void snapEnabledChanged(bool on);
+    void roomSelected(int roomIndex);
 
 protected:
     void initializeGL() override;
@@ -125,6 +126,7 @@ private:
     void buildObjectSpriteVertices(QVector<Vertex> &verts);
     void buildDefObjectVertices(QVector<Vertex> &verts, const QString &textureFile);
     void buildSelectionBorderVertices(QVector<Vertex> &verts);
+    void buildRoomSelectionVertices(QVector<Vertex> &verts);
     void buildGridVertices(QVector<Vertex> &verts);
     void buildOverlayVertices(QVector<Vertex> &verts);
 
@@ -163,6 +165,11 @@ private:
     bool m_draggingObject = false;
     QPointF m_dragObjStartPos;
     int m_dragObjectLayer = -1;
+
+    // Room drag
+    bool m_draggingRoom = false;
+    QPointF m_dragRoomStartPos;
+    int m_selectedRoomIndex = -1;
 
     // Undo
     QUndoStack *m_undoStack = nullptr;

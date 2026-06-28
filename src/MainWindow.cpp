@@ -473,6 +473,20 @@ void MainWindow::connectTools() {
     }
 
     connect(m_mapView, &MapView::objectSelected, this, &MainWindow::updatePropertiesForObject);
+
+    // Room selection in map view → update properties
+    connect(m_mapView, &MapView::roomSelected, this, [this](int idx) {
+        if (idx >= 0) {
+            m_activeRoomIndex = idx;
+            m_roomTabs->blockSignals(true);
+            m_roomTabs->setCurrentIndex(idx);
+            m_roomTabs->blockSignals(false);
+            updateRoomProperties();
+            updateRoomSizeLabel();
+            updateLayerLabel();
+            updateWindowTitle();
+        }
+    });
 }
 
 void MainWindow::connectSignals() {

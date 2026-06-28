@@ -8,6 +8,7 @@
 #include "../Model/GameObject.h"
 
 class Layer;
+class Room;
 
 // ─── Tile change (brush, erase, fill, rect, line, flood fill) ──────────────
 
@@ -85,4 +86,18 @@ private:
     int64_t m_objectId;
     std::string m_oldSpriteId;
     std::string m_newSpriteId;
+};
+
+// ─── Move room ──────────────────────────────────────────────────────────────
+
+class MoveRoomCommand : public QUndoCommand {
+public:
+    MoveRoomCommand(Room *room, int oldX, int oldY, int newX, int newY,
+                    QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+private:
+    Room *m_room;
+    int m_oldX, m_oldY;
+    int m_newX, m_newY;
 };

@@ -124,6 +124,7 @@ void MapView::setTool(ToolType tool) {
         m_selectedObjectId = -1;
         m_selectedObjectLayer = -1;
     }
+    m_selectedRoomIndex = -1;
     m_showPreview = (tool == ToolType::GameObject || tool == ToolType::Trigger || tool == ToolType::Camera);
     // Cursor per mode
     switch (tool) {
@@ -461,6 +462,18 @@ void MapView::paintGL() {
         glDrawArrays(GL_TRIANGLES, 0, selVerts.size());
     }
 
+    // Room selection border
+    QVector<Vertex> roomSelVerts;
+    buildRoomSelectionVertices(roomSelVerts);
+    if (!roomSelVerts.isEmpty()) {
+        m_whiteTex->bind(0);
+        glBindVertexArray(m_tileVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, m_tileVBO);
+        glBufferData(GL_ARRAY_BUFFER, roomSelVerts.size() * (int)sizeof(Vertex),
+                     roomSelVerts.constData(), GL_DYNAMIC_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, roomSelVerts.size());
+    }
+
     // Grid
     QVector<Vertex> gridVerts;
     buildGridVertices(gridVerts);
@@ -705,6 +718,23 @@ void MapView::buildSelectionBorderVertices(QVector<Vertex> &verts) {
     c.setAlpha(200);
     float bw = 2.0f;
     // top, bottom, left, right
+    quad(verts, x - bw, y - bw, w + bw * 2, bw, c);
+    quad(verts, x - bw, y + h, w + bw * 2, bw, c);
+    quad(verts, x - bw, y, bw, h, c);
+    quad(verts, x + w, y, bw, h, c);
+}
+
+void MapView::buildRoomSelectionVertices(QVector<Vertex> &verts) {
+    if (m_selectedRoomIndex < 0 || !m_world) return;
+    Room *room = m_world->room(m_selectedRoomIndex);
+    if (!room) return;
+
+    float x = (float)room->worldX(), y = (float)room->worldY();
+    float w = (float)room->pixelWidth(), h = (float)room->pixelHeight();
+
+    QColor c("#4488ff");
+    c.setAlpha(200);
+    float bw = 2.0f;
     quad(verts, x - bw, y - bw, w + bw * 2, bw, c);
     quad(verts, x - bw, y + h, w + bw * 2, bw, c);
     quad(verts, x - bw, y, bw, h, c);
@@ -988,6 +1018,52 @@ void MapView::mouseMoveEvent(QMouseEvent *event) {
         return;
     }
 
+    // Drag room (Select tool)
+    if (m_leftDown && m_draggingRoom && m_tool == ToolType::Select && m_world) {
+        Room *r = m_world->room(m_selectedRoomIndex);
+        if (r) {
+            float newX = world.x() - r->pixelWidth() / 2.0f;
+            float newY = world.y() - r->pixelHeight() / 2.0f;
+
+            if (m_snapEnabled) {
+                float snapThreshold = 12.0f;
+                for (int ri = 0; ri < m_world->roomCount(); ++ri) {
+                    if (ri == m_selectedRoomIndex) continue;
+                    Room *other = m_world->room(ri);
+                    if (!other) continue;
+                    float otherL = (float)other->worldX();
+                    float otherR = (float)(other->worldX() + other->pixelWidth());
+                    float otherT = (float)other->worldY();
+                    float otherB = (float)(other->worldY() + other->pixelHeight());
+                    float myW = (float)r->pixelWidth();
+                    float myH = (float)r->pixelHeight();
+
+                    // X snap: left↔right, right↔left, center↔center
+                    if (qAbs(newX - otherR) < snapThreshold)
+                        newX = otherR;
+                    else if (qAbs(newX + myW - otherL) < snapThreshold)
+                        newX = otherL - myW;
+                    else if (qAbs(newX + myW/2.0f - (otherL + (otherR-otherL)/2.0f)) < snapThreshold)
+                        newX = otherL + (otherR-otherL)/2.0f - myW/2.0f;
+
+                    // Y snap: top↔bottom, bottom↔top, center↔center
+                    if (qAbs(newY - otherB) < snapThreshold)
+                        newY = otherB;
+                    else if (qAbs(newY + myH - otherT) < snapThreshold)
+                        newY = otherT - myH;
+                    else if (qAbs(newY + myH/2.0f - (otherT + (otherB-otherT)/2.0f)) < snapThreshold)
+                        newY = otherT + (otherB-otherT)/2.0f - myH/2.0f;
+                }
+            }
+
+            r->setWorldX((int)newX);
+            r->setWorldY((int)newY);
+            update();
+            emit objectsChanged();
+        }
+        return;
+    }
+
     // Drag object (Select tool)
     if (m_leftDown && m_draggingObject && m_tool == ToolType::Select && room) {
         Layer *l = room->layer(m_dragObjectLayer);
@@ -1166,6 +1242,7 @@ void MapView::mousePressEvent(QMouseEvent *event) {
                         float ow = obj.width, oh = obj.height;
                         if (world.x() >= ox2 && world.x() <= ox2 + ow &&
                             world.y() >= oy2 && world.y() <= oy2 + oh) {
+                            m_selectedRoomIndex = -1;
                             m_selectedObjectId = obj.id;
                             m_selectedObjectLayer = i;
                             m_draggingObject = true;
@@ -1177,10 +1254,28 @@ void MapView::mousePressEvent(QMouseEvent *event) {
                         }
                     }
                 }
-                // Clicked empty space — clear selection
+                // No game object hit — check if a room was clicked
                 m_selectedObjectId = -1;
                 m_selectedObjectLayer = -1;
                 emit objectSelected(-1, -1);
+                for (int ri = 0; ri < m_world->roomCount(); ++ri) {
+                    Room *r = m_world->room(ri);
+                    if (!r) continue;
+                    int rx = r->worldX(), ry = r->worldY();
+                    int rw = r->pixelWidth(), rh = r->pixelHeight();
+                    if (world.x() >= rx && world.x() <= rx + rw &&
+                        world.y() >= ry && world.y() <= ry + rh) {
+                        m_activeRoomIndex = ri;
+                        m_selectedRoomIndex = ri;
+                        m_draggingRoom = true;
+                        m_dragRoomStartPos = QPointF((float)r->worldX(), (float)r->worldY());
+                        emit roomSelected(ri);
+                        update();
+                        return;
+                    }
+                }
+                m_selectedRoomIndex = -1;
+                emit roomSelected(-1);
                 update();
             }
             break;
@@ -1279,6 +1374,31 @@ void MapView::mouseReleaseEvent(QMouseEvent *event) {
                     if (newPos != m_dragObjStartPos) {
                         auto *cmd = new MoveObjectCommand(layer, m_selectedObjectId,
                                                           m_dragObjStartPos, newPos);
+                        if (m_undoStack)
+                            m_undoStack->push(cmd);
+                        else {
+                            cmd->redo();
+                            delete cmd;
+                        }
+                    }
+                }
+            }
+            m_dragging = false;
+            update();
+            return;
+        }
+
+        // Finalize room drag
+        if (m_draggingRoom) {
+            m_draggingRoom = false;
+            if (m_world) {
+                Room *r = m_world->room(m_selectedRoomIndex);
+                if (r) {
+                    QPointF newPos((float)r->worldX(), (float)r->worldY());
+                    if (newPos != m_dragRoomStartPos) {
+                        auto *cmd = new MoveRoomCommand(r,
+                            (int)m_dragRoomStartPos.x(), (int)m_dragRoomStartPos.y(),
+                            (int)newPos.x(), (int)newPos.y());
                         if (m_undoStack)
                             m_undoStack->push(cmd);
                         else {
