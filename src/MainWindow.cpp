@@ -294,6 +294,43 @@ void MainWindow::updateLayerLabel() {
     }
     m_layerLabel->setText(QString("Layer: %1")
         .arg(QString::fromStdString(room->layer(m_activeLayerIndex)->name())));
+    updateLayerTilesetField();
+}
+
+void MainWindow::updateLayerTilesetField() {
+    Room *room = m_world ? m_world->room(m_activeRoomIndex) : nullptr;
+    Layer *layer = room ? room->layer(m_activeLayerIndex) : nullptr;
+    if (layer) {
+        QString ts = QString::fromStdString(layer->tileset());
+        if (ts.isEmpty())
+            ts = "(procedural)";
+        else
+            ts = QFileInfo(ts).fileName();
+        m_layerTilesetEdit->setText(ts);
+    } else {
+        m_layerTilesetEdit->setText("—");
+    }
+}
+
+void MainWindow::setTilesetOnAllLayers(const QString &path) {
+    if (!m_world) return;
+    QString relPath = path;
+    if (!m_currentFilePath.isEmpty()) {
+        QString projectDir = QFileInfo(m_currentFilePath).absolutePath();
+        relPath = QDir(projectDir).relativeFilePath(path);
+    }
+    int count = 0;
+    for (int ri = 0; ri < m_world->roomCount(); ++ri) {
+        Room *r = m_world->room(ri);
+        if (!r) continue;
+        for (int li = 0; li < r->layerCount(); ++li) {
+            Layer *l = r->layer(li);
+            if (l) { l->setTileset(relPath.toStdString()); ++count; }
+        }
+    }
+    updateLayerTilesetField();
+    statusBar()->showMessage(
+        QString("Tileset set on %1 layers: %2").arg(count).arg(relPath), 5000);
 }
 
 void MainWindow::updateRoomSizeLabel() {
@@ -393,8 +430,9 @@ void MainWindow::updateLayerTreeItem(QTreeWidgetItem *item, int roomIdx, int lay
 // ─── Explorer tree ─────────────────────────────────────────────────────────
 
 void MainWindow::refreshExplorerTree() {
+    m_explorerTree->blockSignals(true);
     m_explorerTree->clear();
-    if (!m_world) return;
+    if (!m_world) { m_explorerTree->blockSignals(false); return; }
 
     auto *worldItem = new QTreeWidgetItem(m_explorerTree);
     worldItem->setText(kColName, QString::fromStdString("World: " + m_world->name()));
@@ -444,8 +482,33 @@ void MainWindow::refreshExplorerTree() {
         goItem->setExpanded(true);
     }
 
+    // Highlight and select active layer
+    for (int i = 0; i < worldItem->childCount(); ++i) {
+        QTreeWidgetItem *ri = worldItem->child(i);
+        if (ri->data(0, Qt::UserRole + 2).toInt() != m_activeRoomIndex) continue;
+        for (int j = 0; j < ri->childCount(); ++j) {
+            QTreeWidgetItem *container = ri->child(j);
+            if (container->data(0, Qt::UserRole + 1).toInt() != Tag_Container) continue;
+            for (int k = 0; k < container->childCount(); ++k) {
+                QTreeWidgetItem *li = container->child(k);
+                bool active = (li->data(0, Qt::UserRole + 2).toInt() == m_activeLayerIndex);
+                QFont f = li->font(kColName);
+                f.setBold(active);
+                li->setFont(kColName, f);
+                if (active) {
+                    li->setBackground(kColName, QColor("#e8f0fe"));
+                    m_explorerTree->setCurrentItem(li);
+                } else {
+                    li->setBackground(kColName, QBrush());
+                }
+            }
+        }
+        break;
+    }
+
     // Repaint the map view to reflect model changes (e.g. after undo/redo)
     if (m_mapView) m_mapView->update();
+    m_explorerTree->blockSignals(false);
 }
 
 // ─── Signal connections ────────────────────────────────────────────────────
@@ -633,6 +696,30 @@ void MainWindow::connectSignals() {
                     m_mapView->setSelectedTileId(index);
                 }
             });
+
+    // Layer tileset browse button
+    connect(m_layerTilesetBtn, &QToolButton::clicked, this, [this]() {
+        QString path = QFileDialog::getOpenFileName(this, "Import Spritesheet for Layer",
+            QString(), "Images (*.png *.bmp *.jpg *.jpeg);;All Files (*)");
+        if (path.isEmpty()) return;
+        int ts = m_world ? m_world->defaultTileSize() : 32;
+        m_mapView->setAtlasTileSize(ts);
+        if (!m_mapView->loadSpritesheet(path)) {
+            QMessageBox::warning(this, "Error", "Failed to load spritesheet.");
+            return;
+        }
+        QFileInfo fi(path);
+        if (m_tilesetCombo) {
+            m_tilesetCombo->blockSignals(true);
+            m_tilesetCombo->clear();
+            m_tilesetCombo->addItem(fi.fileName());
+            m_tilesetCombo->blockSignals(false);
+        }
+        m_tilesetPanel->setSpritesheet(m_mapView->spritesheetImage(),
+                                       m_mapView->atlasTileSize(),
+                                       m_mapView->atlasCols());
+        setTilesetOnAllLayers(path);
+    });
 }
 
 // ─── Properties update ─────────────────────────────────────────────────────
@@ -741,13 +828,21 @@ void MainWindow::saveProject() {
         return;
     }
     makeTilesetPathsRelative();
+    // Debug: check tileset paths before save
+    int tsCount = 0;
+    for (int ri = 0; ri < m_world->roomCount(); ++ri)
+        if (auto *r = m_world->room(ri))
+            for (int li = 0; li < r->layerCount(); ++li)
+                if (auto *l = r->layer(li))
+                    if (!l->tileset().empty()) ++tsCount;
     QString error;
     if (!WorldSerializer::saveToFile(*m_world, m_currentFilePath, &error)) {
         QMessageBox::warning(this, "Save Failed", error);
         return;
     }
+    statusBar()->showMessage(
+        QString("Saved – %1 layers have tileset path").arg(tsCount), 3000);
     updateWindowTitle();
-    statusBar()->showMessage("Saved " + QFileInfo(m_currentFilePath).fileName(), 3000);
 }
 
 bool MainWindow::saveProjectAs() {
@@ -868,18 +963,7 @@ void MainWindow::setupMenuBar() {
                 m_tilesetPanel->setSpritesheet(m_mapView->spritesheetImage(),
                                                m_mapView->atlasTileSize(),
                                                m_mapView->atlasCols());
-                // Save path on the active layer (relative if possible)
-                Room *room = m_world ? m_world->room(m_activeRoomIndex) : nullptr;
-                Layer *layer = room ? room->layer(m_activeLayerIndex) : nullptr;
-                if (layer) {
-                    QString projectDir = m_currentFilePath.isEmpty()
-                        ? QString()
-                        : QFileInfo(m_currentFilePath).absolutePath();
-                    QString relPath = projectDir.isEmpty()
-                        ? path
-                        : QDir(projectDir).relativeFilePath(path);
-                    layer->setTileset(relPath.toStdString());
-                }
+                setTilesetOnAllLayers(path);
             }
         }
     });
@@ -1226,6 +1310,20 @@ void MainWindow::setupPropertiesDock() {
     roomPosRow->addWidget(new QLabel("Y")); roomPosRow->addWidget(m_roomPosY);
     roomForm->addRow("World Pos", roomPosRow);
     propsLayout->addWidget(roomGroup);
+
+    // Layer tileset
+    auto *tilesetRow = new QHBoxLayout();
+    m_layerTilesetEdit = new QLineEdit();
+    m_layerTilesetEdit->setReadOnly(true);
+    m_layerTilesetEdit->setPlaceholderText("(procedural)");
+    tilesetRow->addWidget(m_layerTilesetEdit, 1);
+    m_layerTilesetBtn = new QToolButton();
+    m_layerTilesetBtn->setText("...");
+    m_layerTilesetBtn->setToolTip("Import spritesheet for this layer");
+    tilesetRow->addWidget(m_layerTilesetBtn);
+    auto *tilesetLabel = new QLabel("Tileset:");
+    propsLayout->addWidget(tilesetLabel);
+    propsLayout->addLayout(tilesetRow);
 
     auto *customGroup = new QGroupBox("Custom Properties");
     auto *customLayout = new QVBoxLayout(customGroup);

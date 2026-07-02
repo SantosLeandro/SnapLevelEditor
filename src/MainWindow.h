@@ -48,6 +48,8 @@ private:
 
     void setActiveLayer(int index);
     void updateLayerLabel();
+    void updateLayerTilesetField();
+    void setTilesetOnAllLayers(const QString &path);
     void updateRoomSizeLabel();
     void updateRoomProperties();
     void updatePropertiesForObject(int64_t id, int layerIndex);
@@ -107,6 +109,8 @@ private:
     QLabel *m_tileInfoId = nullptr;
     QLabel *m_tileInfoSprite = nullptr;
     QLabel *m_tileInfoDef = nullptr;
+    QLineEdit *m_layerTilesetEdit = nullptr;
+    QToolButton *m_layerTilesetBtn = nullptr;
     QLabel *m_snapLabel = nullptr;
 
     // Bottom dock
